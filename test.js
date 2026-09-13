@@ -80,10 +80,32 @@ function createSceneCard(scene, style) {
   imagesRow.className = "test-images-row";
   card.appendChild(imagesRow);
 
+  const previewWrap = document.createElement("div");
+  previewWrap.className = "test-preview-wrap";
+  imagesRow.appendChild(previewWrap);
+
   const previewImg = document.createElement("img");
   previewImg.className = "test-preview-image";
   previewImg.hidden = true;
-  imagesRow.appendChild(previewImg);
+  previewWrap.appendChild(previewImg);
+
+  const removeImageButton = document.createElement("button");
+  removeImageButton.type = "button";
+  removeImageButton.className = "test-remove-image-button";
+  removeImageButton.textContent = "✕";
+  removeImageButton.title = "Прибрати зображення";
+  removeImageButton.hidden = true;
+  previewWrap.appendChild(removeImageButton);
+
+  removeImageButton.addEventListener("click", () => {
+    lastImageData = null;
+    previewImg.src = "";
+    previewImg.hidden = true;
+    removeImageButton.hidden = true;
+    uploadInput.value = "";
+    uploadZone.classList.remove("has-image");
+    statusText.textContent = "";
+  });
 
   // Зона для перетягування власного зображення - якщо AI-генерація не
   // влаштовує, можна підставити своє фото як вихідний кадр для fal.ai
@@ -106,6 +128,7 @@ function createSceneCard(scene, style) {
       lastImageData = reader.result;
       previewImg.src = reader.result;
       previewImg.hidden = false;
+      removeImageButton.hidden = false;
       uploadZone.classList.add("has-image");
       statusText.textContent = "Своє зображення завантажено.";
     };
@@ -151,6 +174,8 @@ function createSceneCard(scene, style) {
       lastImageData = data.image_data;
       previewImg.src = `${data.image_url}?t=${Date.now()}`;
       previewImg.hidden = false;
+      removeImageButton.hidden = false;
+      uploadZone.classList.remove("has-image");
       statusText.textContent = "Готово.";
     } catch (err) {
       statusText.textContent = `Помилка: ${err.message}`;

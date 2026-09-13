@@ -458,12 +458,36 @@ button#submit-button:disabled {
   margin-top: 10px;
 }
 
+.test-preview-wrap {
+  position: relative;
+  display: inline-block;
+}
+
 .test-preview-image,
 .test-preview-video {
   display: block;
   max-width: 260px;
   border-radius: 8px;
   background: black;
+}
+
+.test-remove-image-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.test-remove-image-button:hover {
+  background: rgba(200, 40, 40, 0.85);
 }
 
 .test-upload-zone {
