@@ -304,6 +304,12 @@ def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
     не залежати від того, чи доступне воно за публічним URL (черга
     fal.ai приймає і data URI, і звичайний URL).
 
+    Модель видає 768p, 25fps, БЕЗ звукової доріжки (нам це підходить -
+    озвучку й музику ми й так додаємо окремо через ffmpeg, платити за
+    вбудований звук іншої, дорожчої моделі сенсу нема). Тривалість
+    підтримується лише фіксована - 6 або 10 секунд (не довільна) -
+    беремо 6с як дешевший варіант ($0.28 проти $0.56 за кліп).
+
     Повертає шлях до збереженого mp4, або None - якщо ключа немає чи
     щось не вдалось (тоді сцена лишається статичною картинкою).
     """
@@ -321,6 +327,7 @@ def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
         submit_payload = json.dumps({
             "prompt": prompt,
             "image_url": image_data_uri,
+            "duration": "6",
         }).encode("utf-8")
 
         submit_request = urllib.request.Request(
