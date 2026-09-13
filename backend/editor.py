@@ -47,6 +47,9 @@ def _create_scene_clip(image_path: str, duration: float, transition: str, output
         "-vf", ",".join(filters),
         "-r", str(FPS),
         "-pix_fmt", "yuv420p",
+        # ultrafast - кодування набагато дешевше для CPU (важливо на
+        # безкоштовних хостингах з дуже обмеженим CPU, напр. Render Free)
+        "-preset", "ultrafast",
         output_path,
     ])
 

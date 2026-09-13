@@ -42,10 +42,14 @@ def _probe_duration_seconds(path: str) -> float:
 
 
 def _generate_silent_placeholder(duration: float, output_path: str):
+    # тиша генерується одразу з відступом (duration вже включає padding),
+    # тому окремий прохід для padding тут не потрібен - менше запусків
+    # FFmpeg = менше навантаження на CPU (важливо на слабких безкоштовних
+    # хостингах)
     _run_ffmpeg([
         "-f", "lavfi",
         "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo",
-        "-t", str(duration),
+        "-t", str(duration + SCENE_PADDING_SECONDS),
         "-c:a", "libmp3lame",
         "-q:a", "9",
         output_path,
@@ -76,8 +80,11 @@ def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk"
     ai_result = ai.generate_voice_with_ai(scene["voice_text"], output_path, language)
     if ai_result is None:
         _generate_silent_placeholder(scene["duration"], output_path)
+    else:
+        # тривалість реальної озвучки наперед невідома - додаємо
+        # відступ окремим (єдиним) проходом
+        _apply_end_padding(output_path, SCENE_PADDING_SECONDS)
 
-    _apply_end_padding(output_path, SCENE_PADDING_SECONDS)
     scene["duration"] = round(_probe_duration_seconds(output_path), 2)
     return output_path
 
