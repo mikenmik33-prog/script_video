@@ -76,10 +76,53 @@ function createSceneCard(scene, style) {
   statusText.className = "test-status";
   card.appendChild(statusText);
 
+  const imagesRow = document.createElement("div");
+  imagesRow.className = "test-images-row";
+  card.appendChild(imagesRow);
+
   const previewImg = document.createElement("img");
   previewImg.className = "test-preview-image";
   previewImg.hidden = true;
-  card.appendChild(previewImg);
+  imagesRow.appendChild(previewImg);
+
+  // Зона для перетягування власного зображення - якщо AI-генерація не
+  // влаштовує, можна підставити своє фото як вихідний кадр для fal.ai
+  // (те саме поле lastImageData, що й для згенерованої картинки)
+  const uploadZone = document.createElement("label");
+  uploadZone.className = "test-upload-zone";
+  uploadZone.textContent = "Перетягніть своє зображення сюди\nабо натисніть, щоб обрати файл";
+
+  const uploadInput = document.createElement("input");
+  uploadInput.type = "file";
+  uploadInput.accept = "image/*";
+  uploadInput.hidden = true;
+  uploadZone.appendChild(uploadInput);
+  imagesRow.appendChild(uploadZone);
+
+  function handleUploadedFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      lastImageData = reader.result;
+      previewImg.src = reader.result;
+      previewImg.hidden = false;
+      uploadZone.classList.add("has-image");
+      statusText.textContent = "Своє зображення завантажено.";
+    };
+    reader.readAsDataURL(file);
+  }
+
+  uploadInput.addEventListener("change", () => handleUploadedFile(uploadInput.files[0]));
+  uploadZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    uploadZone.classList.add("dragover");
+  });
+  uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
+  uploadZone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    uploadZone.classList.remove("dragover");
+    handleUploadedFile(event.dataTransfer.files[0]);
+  });
 
   const previewVideo = document.createElement("video");
   previewVideo.className = "test-preview-video";

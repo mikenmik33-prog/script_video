@@ -451,11 +451,45 @@ button#submit-button:disabled {
   min-height: 16px;
 }
 
+.test-images-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
 .test-preview-image,
 .test-preview-video {
   display: block;
   max-width: 260px;
   border-radius: 8px;
-  margin-top: 10px;
   background: black;
+}
+
+.test-upload-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: pre-line;
+  width: 180px;
+  min-height: 200px;
+  border: 2px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.test-upload-zone:hover,
+.test-upload-zone.dragover {
+  border-color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.test-upload-zone.has-image {
+  border-style: solid;
+  border-color: rgba(120, 200, 120, 0.6);
 }
