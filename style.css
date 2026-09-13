@@ -34,6 +34,38 @@ body {
   font-size: 28px;
 }
 
+.topbar-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.topnav {
+  display: flex;
+  gap: 8px;
+}
+
+.topnav-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.topnav-link:hover {
+  color: var(--text);
+  border-color: var(--panel-border);
+}
+
+.topnav-link.active {
+  color: var(--text);
+  background: var(--input-bg);
+  border-color: var(--panel-border);
+}
+
 .subtitle {
   margin: 0;
   color: var(--text-muted);
