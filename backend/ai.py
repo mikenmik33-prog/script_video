@@ -34,6 +34,7 @@ import base64
 import json
 import logging
 import os
+import random
 import time
 import urllib.error
 import urllib.parse
@@ -214,9 +215,13 @@ def generate_visual_with_ai(prompt: str, output_path: str):
     Повертає шлях до збереженого файлу, або None - якщо запит не
     вдався (тоді scene_generator створює тестове кольорове зображення).
     """
+    # Pollinations кешує результат за самим текстом промту - без
+    # випадкового seed повторний запит з тим самим текстом повертає
+    # ТУ САМУ картинку (важливо для кнопки "перегенерувати" на /test)
+    seed = random.randint(0, 2**31 - 1)
     url = (
         POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt))
-        + f"?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&nologo=true"
+        + f"?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&nologo=true&seed={seed}"
     )
     headers = {"User-Agent": "Mozilla/5.0"}
     if POLLINATIONS_API_KEY:
