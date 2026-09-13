@@ -17,6 +17,10 @@ AI-сервіси (наприклад платна генерація зобра
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
   (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
   та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
+- Відео для окремих сцен (не обов'язково для всіх): Kling AI
+  (платний, потрібен KLING_API_KEY) - image-to-video, оживляє вже
+  згенероване зображення сцени рухом камери/обʼєктів. Викликається
+  вибірково, не для кожної сцени - див. scene_generator.py.
 
 Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
 збій відповіді) - відповідна generate_*_with_ai() повертає None, і
@@ -26,9 +30,11 @@ AI-сервіси (наприклад платна генерація зобра
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -48,10 +54,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
+KLING_API_KEY = os.getenv("KLING_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
+
+# Домен для користувачів поза Китаєм (є примітка про це в офіційній
+# документації Kling AI Open Platform)
+KLING_API_BASE = "https://api-singapore.klingai.com"
+KLING_IMAGE2VIDEO_PATH = "/v1/videos/image2video"
+KLING_POLL_INTERVAL_SECONDS = 5
+KLING_MAX_WAIT_SECONDS = 180
 
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 POLLINATIONS_TIMEOUT_SECONDS = 60
@@ -198,6 +212,78 @@ def generate_visual_with_ai(prompt: str, output_path: str):
         return output_path
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logger.warning("Pollinations.ai недоступний (%s), використовуємо тестове зображення", exc)
+        return None
+
+
+def has_kling_api() -> bool:
+    return bool(KLING_API_KEY)
+
+
+def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
+    """Оживляє вже згенероване зображення сцени коротким відеокліпом
+    (image-to-video) через Kling AI - платний сервіс, викликається
+    вибірково (не для кожної сцени, див. scene_generator.py).
+
+    Повертає шлях до збереженого mp4, або None - якщо ключа немає чи
+    щось не вдалось (тоді сцена лишається статичною картинкою).
+
+    УВАГА: ця функція звірена з публічною документацією Kling AI, але
+    не перевірена живим викликом (klingai.com недоступний з цього
+    середовища розробки) - структура відповіді може відрізнятись від
+    очікуваної. Перший реальний виклик варто перевірити окремо і за
+    потреби скоригувати парсинг відповіді нижче.
+    """
+    if not KLING_API_KEY:
+        return None
+
+    headers_auth = {"Authorization": f"Bearer {KLING_API_KEY}"}
+
+    try:
+        with open(image_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        submit_payload = json.dumps({
+            "model_name": "kling-v1",
+            "image": image_b64,
+            "prompt": prompt,
+            "duration": "5",
+        }).encode("utf-8")
+
+        submit_request = urllib.request.Request(
+            f"{KLING_API_BASE}{KLING_IMAGE2VIDEO_PATH}",
+            data=submit_payload,
+            headers={**headers_auth, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(submit_request, timeout=30) as response:
+            submit_body = json.loads(response.read().decode("utf-8"))
+        task_id = submit_body["data"]["task_id"]
+
+        status_url = f"{KLING_API_BASE}{KLING_IMAGE2VIDEO_PATH}/{task_id}"
+        elapsed = 0
+        while elapsed < KLING_MAX_WAIT_SECONDS:
+            time.sleep(KLING_POLL_INTERVAL_SECONDS)
+            elapsed += KLING_POLL_INTERVAL_SECONDS
+
+            status_request = urllib.request.Request(status_url, headers=headers_auth)
+            with urllib.request.urlopen(status_request, timeout=20) as response:
+                status_body = json.loads(response.read().decode("utf-8"))
+
+            task_status = status_body["data"]["task_status"]
+            if task_status == "succeed":
+                video_url = status_body["data"]["task_result"]["videos"][0]["url"]
+                with urllib.request.urlopen(video_url, timeout=60) as response:
+                    with open(output_path, "wb") as f:
+                        f.write(response.read())
+                return output_path
+            if task_status == "failed":
+                logger.warning("Kling AI: генерація відео завершилась невдало (task_status=failed)")
+                return None
+
+        logger.warning("Kling AI: не дочекались результату за %s с", KLING_MAX_WAIT_SECONDS)
+        return None
+    except Exception as exc:  # структура відповіді ще не перевірена живим викликом
+        logger.warning("Kling AI недоступний (%s), лишаємо статичну картинку", exc)
         return None
 
 
