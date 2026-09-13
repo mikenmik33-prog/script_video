@@ -55,6 +55,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 KLING_API_KEY = os.getenv("KLING_API_KEY", "").strip()
+POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -194,7 +195,13 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
 
 
 def generate_visual_with_ai(prompt: str, output_path: str):
-    """Генерує зображення сцени через Pollinations.ai (безкоштовно, без ключа).
+    """Генерує зображення сцени через Pollinations.ai (безкоштовно).
+
+    Без POLLINATIONS_API_KEY працює анонімно, але Pollinations додає
+    свій водяний знак на кожне зображення (nologo=true анонімним
+    запитам не допомагає - прибрати логотип можна лише з безкоштовною
+    реєстрацією на https://auth.pollinations.ai, токен передається як
+    звичайний Bearer-заголовок).
 
     Повертає шлях до збереженого файлу, або None - якщо запит не
     вдався (тоді scene_generator створює тестове кольорове зображення).
@@ -203,8 +210,12 @@ def generate_visual_with_ai(prompt: str, output_path: str):
         POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt))
         + f"?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&nologo=true"
     )
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if POLLINATIONS_API_KEY:
+        headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
+
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        request = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:
             image_bytes = response.read()
         with open(output_path, "wb") as f:
