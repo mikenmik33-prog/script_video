@@ -55,6 +55,7 @@ GEMINI_TIMEOUT_SECONDS = 30
 
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 POLLINATIONS_TIMEOUT_SECONDS = 60
+IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -184,7 +185,10 @@ def generate_visual_with_ai(prompt: str, output_path: str):
     Повертає шлях до збереженого файлу, або None - якщо запит не
     вдався (тоді scene_generator створює тестове кольорове зображення).
     """
-    url = POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt)) + "?width=1080&height=1920&nologo=true"
+    url = (
+        POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt))
+        + f"?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&nologo=true"
+    )
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:

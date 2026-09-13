@@ -4,7 +4,7 @@
 Спочатку пробує реальну генерацію зображення через ai.py (Pollinations.ai,
 за промтом visual_prompt від Gemini + стильовий суфікс нижче). Якщо
 запит не вдався (немає інтернету, сервіс недоступний), для сцени
-створюється тестове кольорове зображення 1080x1920 з підписом - це
+створюється тестове кольорове зображення 720x1280 з підписом - це
 дозволяє конвеєру працювати навіть повністю офлайн.
 """
 
@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from backend import ai
 
-WIDTH, HEIGHT = 1080, 1920
+WIDTH, HEIGHT = 720, 1280  # 720p
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "DejaVuSans-Bold.ttf")
 
