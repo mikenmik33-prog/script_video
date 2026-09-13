@@ -212,7 +212,11 @@ def generate_visual_with_ai(prompt: str, output_path: str):
     )
     headers = {"User-Agent": "Mozilla/5.0"}
     if POLLINATIONS_API_KEY:
+        # передаємо токен і заголовком, і параметром URL одночасно -
+        # документація Pollinations неоднозначна щодо того, який саме
+        # спосіб перевіряє їхній сервер для цього конкретного endpoint
         headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
+        url += f"&token={urllib.parse.quote(POLLINATIONS_API_KEY)}"
 
     try:
         request = urllib.request.Request(url, headers=headers)
