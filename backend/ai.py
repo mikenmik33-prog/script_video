@@ -19,10 +19,14 @@ AI-сервіси (наприклад платна генерація зобра
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
   (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
   та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
-- Відео для окремих сцен (не обов'язково для всіх): Kling AI
-  (платний, потрібен KLING_API_KEY) - image-to-video, оживляє вже
-  згенероване зображення сцени рухом камери/обʼєктів. Викликається
-  вибірково, не для кожної сцени - див. scene_generator.py.
+- Відео для окремих сцен (не обов'язково для всіх): fal.ai (платний,
+  потрібен FAL_API_KEY) - image-to-video через модель MiniMax Hailuo,
+  оживляє вже згенероване зображення сцени рухом. Оплата за фактичне
+  використання, без підписки чи мінімального платежу (на відміну від
+  Kling AI Open Platform, де мінімальний корпоративний тариф
+  починається від $1550/міс - для нашого вибіркового, нечастого
+  використання це не підходить). Викликається вибірково, не для
+  кожної сцени - див. scene_generator.py.
 
 Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
 збій відповіді) - відповідна generate_*_with_ai() повертає None, і
@@ -57,7 +61,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
-KLING_API_KEY = os.getenv("KLING_API_KEY", "").strip()
+FAL_API_KEY = os.getenv("FAL_API_KEY", "").strip()
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
 
@@ -65,12 +69,12 @@ GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
 
-# Домен для користувачів поза Китаєм (є примітка про це в офіційній
-# документації Kling AI Open Platform)
-KLING_API_BASE = "https://api-singapore.klingai.com"
-KLING_IMAGE2VIDEO_PATH = "/v1/videos/image2video"
-KLING_POLL_INTERVAL_SECONDS = 5
-KLING_MAX_WAIT_SECONDS = 180
+# fal.ai - агрегатор AI-моделей з оплатою за фактичне використання
+# (queue-based API: POST у чергу -> опитування статусу -> результат)
+FAL_QUEUE_BASE = "https://queue.fal.run"
+FAL_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
+FAL_POLL_INTERVAL_SECONDS = 5
+FAL_MAX_WAIT_SECONDS = 180
 
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 POLLINATIONS_TIMEOUT_SECONDS = 60
@@ -315,88 +319,96 @@ def generate_visual_with_ai(prompt: str, output_path: str):
         return None
 
 
-def has_kling_api() -> bool:
-    return bool(KLING_API_KEY)
+def has_video_api() -> bool:
+    return bool(FAL_API_KEY)
+
+
+def _guess_image_mime(image_path: str) -> str:
+    ext = os.path.splitext(image_path)[1].lower()
+    return "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
 
 
 def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
     """Оживляє вже згенероване зображення сцени коротким відеокліпом
-    (image-to-video) через Kling AI - платний сервіс, викликається
-    вибірково (не для кожної сцени, див. scene_generator.py).
+    (image-to-video) через fal.ai (модель MiniMax Hailuo) - платний
+    сервіс з оплатою за фактичне використання (без підписки), тому
+    викликається вибірково, не для кожної сцени (див. scene_generator.py).
+
+    Зображення передається як base64 data URI прямо в тілі запиту, щоб
+    не залежати від того, чи доступне воно за публічним URL (черга
+    fal.ai приймає і data URI, і звичайний URL).
 
     Повертає шлях до збереженого mp4, або None - якщо ключа немає чи
     щось не вдалось (тоді сцена лишається статичною картинкою).
-
-    УВАГА: ця функція звірена з публічною документацією Kling AI, але
-    не перевірена живим викликом (klingai.com недоступний з цього
-    середовища розробки) - структура відповіді може відрізнятись від
-    очікуваної. Перший реальний виклик варто перевірити окремо і за
-    потреби скоригувати парсинг відповіді нижче.
     """
-    if not KLING_API_KEY:
+    if not FAL_API_KEY:
         return None
 
-    headers_auth = {"Authorization": f"Bearer {KLING_API_KEY}"}
+    headers_auth = {"Authorization": f"Key {FAL_API_KEY}"}
+    submit_url = f"{FAL_QUEUE_BASE}/{FAL_MODEL}"
 
     try:
         with open(image_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
+        image_data_uri = f"data:{_guess_image_mime(image_path)};base64,{image_b64}"
 
         submit_payload = json.dumps({
-            "model_name": "kling-v1",
-            "image": image_b64,
             "prompt": prompt,
-            "duration": "5",
+            "image_url": image_data_uri,
         }).encode("utf-8")
 
         submit_request = urllib.request.Request(
-            f"{KLING_API_BASE}{KLING_IMAGE2VIDEO_PATH}",
+            submit_url,
             data=submit_payload,
             headers={**headers_auth, "Content-Type": "application/json"},
             method="POST",
         )
         with urllib.request.urlopen(submit_request, timeout=30) as response:
             submit_body = json.loads(response.read().decode("utf-8"))
-        task_id = submit_body["data"]["task_id"]
 
-        status_url = f"{KLING_API_BASE}{KLING_IMAGE2VIDEO_PATH}/{task_id}"
+        status_url = submit_body["status_url"]
+        response_url = submit_body["response_url"]
+
         elapsed = 0
-        while elapsed < KLING_MAX_WAIT_SECONDS:
-            time.sleep(KLING_POLL_INTERVAL_SECONDS)
-            elapsed += KLING_POLL_INTERVAL_SECONDS
+        while elapsed < FAL_MAX_WAIT_SECONDS:
+            time.sleep(FAL_POLL_INTERVAL_SECONDS)
+            elapsed += FAL_POLL_INTERVAL_SECONDS
 
             status_request = urllib.request.Request(status_url, headers=headers_auth)
             with urllib.request.urlopen(status_request, timeout=20) as response:
                 status_body = json.loads(response.read().decode("utf-8"))
 
-            task_status = status_body["data"]["task_status"]
-            if task_status == "succeed":
-                video_url = status_body["data"]["task_result"]["videos"][0]["url"]
+            status = status_body.get("status")
+            if status == "COMPLETED":
+                result_request = urllib.request.Request(response_url, headers=headers_auth)
+                with urllib.request.urlopen(result_request, timeout=20) as response:
+                    result_body = json.loads(response.read().decode("utf-8"))
+                video_url = result_body["video"]["url"]
                 with urllib.request.urlopen(video_url, timeout=60) as response:
                     with open(output_path, "wb") as f:
                         f.write(response.read())
                 return output_path
-            if task_status == "failed":
-                logger.warning("Kling AI: генерація відео завершилась невдало (task_status=failed)")
+            if status in ("ERROR", "CANCELED"):
+                logger.warning("fal.ai: генерація відео завершилась невдало (status=%s)", status)
                 return None
 
-        logger.warning("Kling AI: не дочекались результату за %s с", KLING_MAX_WAIT_SECONDS)
+        logger.warning("fal.ai: не дочекались результату за %s с", FAL_MAX_WAIT_SECONDS)
         return None
     except urllib.error.HTTPError as exc:
-        # тіло відповіді зазвичай містить точний код/причину помилки Kling
-        # (наприклад брак балансу, неактивований сервіс тощо) - без цього
-        # в логах видно лише голий HTTP-код, замало для діагностики
+        # тіло відповіді зазвичай містить точний код/причину помилки
+        # (наприклад брак балансу, невірний формат запиту тощо) - без
+        # цього в логах видно лише голий HTTP-код, замало для діагностики
         try:
             error_body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             error_body = "<не вдалось прочитати тіло відповіді>"
         logger.warning(
-            "Kling AI недоступний (HTTP %s: %s), тіло відповіді: %s, лишаємо статичну картинку",
+            "fal.ai недоступний (HTTP %s: %s), тіло відповіді: %s, лишаємо статичну картинку",
             exc.code, exc.reason, error_body,
         )
         return None
-    except Exception as exc:  # структура відповіді ще не перевірена живим викликом
-        logger.warning("Kling AI недоступний (%s), лишаємо статичну картинку", exc)
+    except Exception as exc:
+        logger.warning("fal.ai недоступний (%s), лишаємо статичну картинку", exc)
         return None
 
 

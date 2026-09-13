@@ -279,7 +279,7 @@ def get_result(job_id: str):
 
 TEST_MAX_DURATION = 15
 
-# Окрема in-memory "база" для тестових video-задач (Kling) - та сама
+# Окрема in-memory "база" для тестових video-задач (fal.ai) - та сама
 # логіка, що й jobs, але навмисно окремий словник, щоб тестова панель
 # не змішувалась зі станом основного генератора відео.
 test_video_jobs: dict = {}
@@ -339,13 +339,13 @@ def _run_test_video_job(job_id: str, image_path: str, visual_prompt: str):
         job["video_url"] = f"/output/_test/videos/{job_id}.mp4"
     else:
         job["status"] = "error"
-        job["error"] = "Kling AI не повернув результат - деталі причини дивіться в логах сервера"
+        job["error"] = "fal.ai не повернув результат - деталі причини дивіться в логах сервера"
 
 
 @app.post("/api/test/video")
 def test_generate_video(request: TestVideoRequest, background_tasks: BackgroundTasks):
-    if not ai.has_kling_api():
-        raise HTTPException(400, "KLING_API_KEY не налаштований на сервері")
+    if not ai.has_video_api():
+        raise HTTPException(400, "FAL_API_KEY не налаштований на сервері")
 
     relative_path = request.image_url.removeprefix("/output/")
     image_path = os.path.join(OUTPUT_DIR, relative_path)

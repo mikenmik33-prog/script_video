@@ -67,7 +67,7 @@ function createSceneCard(scene, style) {
   const videoButton = document.createElement("button");
   videoButton.type = "button";
   videoButton.className = "danger-button";
-  videoButton.textContent = "🎬 Згенерувати відео (Kling, платно)";
+  videoButton.textContent = "🎬 Згенерувати відео (fal.ai, платно)";
   buttonsRow.appendChild(videoButton);
 
   card.appendChild(buttonsRow);
@@ -118,12 +118,12 @@ function createSceneCard(scene, style) {
       return;
     }
     const confirmed = window.confirm(
-      "Це реально витратить платні кредити Kling AI. Продовжити?"
+      "Це реально витратить платний баланс fal.ai. Продовжити?"
     );
     if (!confirmed) return;
 
     videoButton.disabled = true;
-    statusText.textContent = "Надсилаємо запит до Kling AI...";
+    statusText.textContent = "Надсилаємо запит до fal.ai...";
     try {
       const response = await fetch("/api/test/video", {
         method: "POST",
@@ -147,7 +147,7 @@ function createSceneCard(scene, style) {
 }
 
 async function pollVideoJob(jobId, statusText, previewVideo) {
-  statusText.textContent = "Kling генерує відео (може тривати до 3 хв)...";
+  statusText.textContent = "fal.ai генерує відео (може тривати до 3 хв)...";
   const POLL_INTERVAL_MS = 4000;
 
   while (true) {
@@ -167,7 +167,7 @@ async function pollVideoJob(jobId, statusText, previewVideo) {
       return;
     }
     if (data.status === "error") {
-      statusText.textContent = `Помилка Kling: ${data.error}`;
+      statusText.textContent = `Помилка fal.ai: ${data.error}`;
       return;
     }
   }
