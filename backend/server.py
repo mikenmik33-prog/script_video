@@ -411,6 +411,15 @@ def get_test_video_status(job_id: str):
     return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
 
+@app.get("/health")
+def health_check():
+    # Легкий ендпоінт спеціально для зовнішнього пінгера (UptimeRobot
+    # тощо), щоб не давати Render безкоштовного тарифу засинати після
+    # ~15 хв бездіяльності - нічого не читає з диску й не викликає
+    # жодного AI-сервісу, тому пінг кожні кілька хвилин нічого не коштує.
+    return {"status": "ok"}
+
+
 # --- Роздача frontend-файлів (лежать у корені проєкту, не в backend/) ---
 
 
