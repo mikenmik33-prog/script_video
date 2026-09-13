@@ -6,12 +6,14 @@ AI-сервіси (наприклад платна генерація зобра
 
 - Сценарій (текст + промти сцен): Gemini API (потрібен GEMINI_API_KEY,
   безкоштовний).
-- Візуал: Pollinations.ai - безкоштовний генератор зображень без
-  API-ключа й без реєстрації (публічний сервіс, працює через звичайний
-  HTTP-запит). Примітка: генерація зображень безпосередньо через
-  Gemini ("Nano Banana") існує, але на безкоштовному тарифі Gemini її
-  квота дорівнює нулю (потрібен платний білінг) - тому для реальної
-  безкоштовності обрано Pollinations.
+- Візуал: Hugging Face Inference API (модель FLUX.1-schnell) -
+  безкоштовно, без водяного знаку (це прямий вивід моделі, без
+  сервісного логотипу), потрібен безкоштовний HUGGINGFACE_API_KEY.
+  Якщо його немає (або запит не вдався) - резервний варіант
+  Pollinations.ai (теж безкоштовно, без ключа, але з водяним знаком).
+  Примітка: генерація зображень безпосередньо через Gemini ("Nano
+  Banana") існує, але на безкоштовному тарифі Gemini її квота
+  дорівнює нулю (потрібен платний білінг).
 - Озвучка: edge-tts - безкоштовний, без API-ключа (використовує
   публічний сервіс синтезу мовлення Microsoft Edge). Це неофіційна
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
@@ -57,6 +59,7 @@ VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 KLING_API_KEY = os.getenv("KLING_API_KEY", "").strip()
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -72,6 +75,14 @@ KLING_MAX_WAIT_SECONDS = 180
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 POLLINATIONS_TIMEOUT_SECONDS = 60
 IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
+
+HUGGINGFACE_MODEL = "black-forest-labs/FLUX.1-schnell"
+HUGGINGFACE_URL = f"https://api-inference.huggingface.co/models/{HUGGINGFACE_MODEL}"
+HUGGINGFACE_TIMEOUT_SECONDS = 60
+HUGGINGFACE_MAX_RETRIES = 3
+# скільки чекати, якщо модель ще "прогрівається" (типова затримка
+# безкоштовного тарифу Hugging Face при першому виклику моделі)
+HUGGINGFACE_COLD_START_WAIT_SECONDS = 20
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -203,18 +214,50 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
         return None
 
 
-def generate_visual_with_ai(prompt: str, output_path: str):
-    """Генерує зображення сцени через Pollinations.ai (безкоштовно).
+def _generate_image_with_huggingface(prompt: str, output_path: str):
+    """Одна спроба згенерувати зображення через Hugging Face Inference API.
 
-    Без POLLINATIONS_API_KEY працює анонімно, але Pollinations додає
-    свій водяний знак на кожне зображення (nologo=true анонімним
-    запитам не допомагає - прибрати логотип можна лише з безкоштовною
-    реєстрацією на https://auth.pollinations.ai, токен передається як
-    звичайний Bearer-заголовок).
+    Повертає output_path при успіху. Кидає виняток при збої (ловить
+    викликач generate_visual_with_ai) - крім HTTP 503 "модель ще
+    завантажується", яку обробляє сама (це типова затримка
+    безкоштовного тарифу при першому виклику конкретної моделі)."""
+    payload = json.dumps({"inputs": prompt}).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-    Повертає шлях до збереженого файлу, або None - якщо запит не
-    вдався (тоді scene_generator створює тестове кольорове зображення).
-    """
+    for attempt in range(HUGGINGFACE_MAX_RETRIES):
+        request = urllib.request.Request(HUGGINGFACE_URL, data=payload, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=HUGGINGFACE_TIMEOUT_SECONDS) as response:
+                content_type = response.headers.get("Content-Type", "")
+                body = response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code == 503 and attempt < HUGGINGFACE_MAX_RETRIES - 1:
+                error_body = exc.read()
+                try:
+                    wait_seconds = json.loads(error_body).get("estimated_time", HUGGINGFACE_COLD_START_WAIT_SECONDS)
+                except (ValueError, AttributeError):
+                    wait_seconds = HUGGINGFACE_COLD_START_WAIT_SECONDS
+                logger.info("Hugging Face: модель ще завантажується, чекаємо %.0f с...", wait_seconds)
+                time.sleep(min(wait_seconds, 60))
+                continue
+            raise
+
+        if "image" in content_type:
+            with open(output_path, "wb") as f:
+                f.write(body)
+            return output_path
+
+        raise RuntimeError(f"Hugging Face повернув не зображення: {body[:200]!r}")
+
+    raise RuntimeError("Hugging Face: модель не встигла завантажитись за відведені спроби")
+
+
+def _generate_image_with_pollinations(prompt: str, output_path: str) -> str:
+    """Резервний безкоштовний генератор зображень (без ключа, але з
+    водяним знаком - див. docstring generate_visual_with_ai)."""
     # Pollinations кешує результат за самим текстом промту - без
     # випадкового seed повторний запит з тим самим текстом повертає
     # ТУ САМУ картинку (важливо для кнопки "перегенерувати" на /test)
@@ -225,19 +268,38 @@ def generate_visual_with_ai(prompt: str, output_path: str):
     )
     headers = {"User-Agent": "Mozilla/5.0"}
     if POLLINATIONS_API_KEY:
-        # передаємо токен і заголовком, і параметром URL одночасно -
-        # документація Pollinations неоднозначна щодо того, який саме
-        # спосіб перевіряє їхній сервер для цього конкретного endpoint
         headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
         url += f"&token={urllib.parse.quote(POLLINATIONS_API_KEY)}"
 
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:
+        image_bytes = response.read()
+    with open(output_path, "wb") as f:
+        f.write(image_bytes)
+    return output_path
+
+
+def generate_visual_with_ai(prompt: str, output_path: str):
+    """Генерує зображення сцени.
+
+    Порядок спроб:
+    1. Hugging Face Inference API (безкоштовно, без водяного знаку) -
+       якщо заданий HUGGINGFACE_API_KEY.
+    2. Pollinations.ai (безкоштовно, без ключа, але з водяним знаком) -
+       резервний варіант.
+
+    Повертає шлях до збереженого файлу, або None - якщо обидва запити
+    не вдались (тоді scene_generator створює тестове кольорове
+    зображення).
+    """
+    if HUGGINGFACE_API_KEY:
+        try:
+            return _generate_image_with_huggingface(prompt, output_path)
+        except Exception as exc:
+            logger.warning("Hugging Face недоступний (%s), пробуємо Pollinations.ai", exc)
+
     try:
-        request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:
-            image_bytes = response.read()
-        with open(output_path, "wb") as f:
-            f.write(image_bytes)
-        return output_path
+        return _generate_image_with_pollinations(prompt, output_path)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logger.warning("Pollinations.ai недоступний (%s), використовуємо тестове зображення", exc)
         return None
