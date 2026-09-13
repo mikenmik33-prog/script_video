@@ -7,6 +7,12 @@ const scriptError = document.getElementById("script-error");
 const scenesPanel = document.getElementById("scenes-panel");
 const scenesList = document.getElementById("scenes-list");
 
+const finalizePanel = document.getElementById("finalize-panel");
+const finalizeButton = document.getElementById("finalize-button");
+const finalizeError = document.getElementById("finalize-error");
+const finalizeStatus = document.getElementById("finalize-status");
+const finalizeVideo = document.getElementById("finalize-video");
+
 function showError(el, message) {
   el.textContent = message;
   el.hidden = false;
@@ -17,10 +23,31 @@ function clearError(el) {
   el.textContent = "";
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function createSceneCard(scene, style) {
   const card = document.createElement("div");
   card.className = "test-scene-card";
   let lastImageData = null;
+  let lastVideoData = null;
+
+  // Відео завжди прив'язане до КОНКРЕТНОЇ картинки, з якої його
+  // згенерували - якщо картинка змінилась (перегенерована, завантажена
+  // своя чи прибрана), старе відео вже не відповідає новому кадру і
+  // його треба сховати, інакше можна випадково "фіналізувати" сцену зі
+  // старим відео поверх нової картинки
+  function resetVideoState() {
+    lastVideoData = null;
+    previewVideo.hidden = true;
+    continueButton.hidden = true;
+  }
 
   const header = document.createElement("h3");
   header.textContent = `Сцена ${scene.scene} (${scene.duration}с, перехід: ${scene.transition})`;
@@ -104,6 +131,7 @@ function createSceneCard(scene, style) {
     removeImageButton.hidden = true;
     uploadInput.value = "";
     uploadZone.classList.remove("has-image");
+    resetVideoState();
     statusText.textContent = "";
   });
 
@@ -130,6 +158,7 @@ function createSceneCard(scene, style) {
       previewImg.hidden = false;
       removeImageButton.hidden = false;
       uploadZone.classList.add("has-image");
+      resetVideoState();
       statusText.textContent = "Своє зображення завантажено.";
     };
     reader.readAsDataURL(file);
@@ -178,8 +207,7 @@ function createSceneCard(scene, style) {
       previewImg.hidden = false;
       removeImageButton.hidden = false;
       uploadZone.classList.remove("has-image");
-      previewVideo.hidden = true;
-      continueButton.hidden = true;
+      resetVideoState();
       statusText.textContent = "Останній кадр узято як нову картинку - онови промт (опиши продовження дії) і натисни «Перегенерувати картинку» або одразу «Згенерувати відео».";
     };
 
@@ -215,6 +243,7 @@ function createSceneCard(scene, style) {
       previewImg.hidden = false;
       removeImageButton.hidden = false;
       uploadZone.classList.remove("has-image");
+      resetVideoState();
       statusText.textContent = "Готово.";
     } catch (err) {
       statusText.textContent = `Помилка: ${err.message}`;
@@ -246,12 +275,31 @@ function createSceneCard(scene, style) {
         throw new Error(body.detail || "Не вдалося запустити генерацію відео");
       }
       const { job_id: jobId } = await response.json();
-      await pollVideoJob(jobId, statusText, previewVideo, continueButton);
+      const videoUrl = await pollVideoJob(jobId, statusText, previewVideo, continueButton);
+      if (videoUrl) {
+        // тримаємо байти відео в пам'яті (не лише URL) - потрібно для
+        // "Завершити повне відео" (надсилаємо їх на бекенд) і про запас
+        // на випадок, якщо сервер засне до того, як натиснуть фіналізацію
+        try {
+          const videoBlob = await (await fetch(videoUrl)).blob();
+          lastVideoData = await blobToDataUrl(videoBlob);
+        } catch (err) {
+          // не критично - просто не можна буде фіналізувати цю сцену з відео
+        }
+      }
     } catch (err) {
       statusText.textContent = `Помилка: ${err.message}`;
     } finally {
       videoButton.disabled = false;
     }
+  });
+
+  card.getSceneData = () => ({
+    voice_text: voiceInput.value,
+    subtitle: subtitleInput.value,
+    transition: scene.transition,
+    image_data: lastVideoData ? null : lastImageData,
+    video_data: lastVideoData,
   });
 
   return card;
@@ -267,7 +315,7 @@ async function pollVideoJob(jobId, statusText, previewVideo, continueButton) {
     const response = await fetch(`/api/test/video/${jobId}`);
     if (!response.ok) {
       statusText.textContent = "Помилка при перевірці статусу.";
-      return;
+      return null;
     }
     const data = await response.json();
 
@@ -276,25 +324,32 @@ async function pollVideoJob(jobId, statusText, previewVideo, continueButton) {
       previewVideo.hidden = false;
       continueButton.hidden = false;
       statusText.textContent = "Відео готове!";
-      return;
+      return data.video_url;
     }
     if (data.status === "error") {
       statusText.textContent = `Помилка fal.ai: ${data.error}`;
-      return;
+      return null;
     }
   }
 }
+
+let currentLanguage = "uk";
 
 async function handleScriptSubmit(event) {
   event.preventDefault();
   clearError(scriptError);
   scenesPanel.hidden = true;
   scenesList.innerHTML = "";
+  finalizePanel.hidden = true;
+  finalizeVideo.hidden = true;
+  clearError(finalizeError);
+  finalizeStatus.textContent = "";
 
   const topic = document.getElementById("topic").value.trim();
   const duration = Number(document.getElementById("duration").value);
   const style = document.getElementById("style").value;
   const language = document.getElementById("language").value;
+  currentLanguage = language;
 
   if (!topic) {
     showError(scriptError, "Введіть тему");
@@ -319,6 +374,7 @@ async function handleScriptSubmit(event) {
       scenesList.appendChild(createSceneCard(scene, style));
     });
     scenesPanel.hidden = false;
+    finalizePanel.hidden = false;
   } catch (err) {
     showError(scriptError, err.message);
   } finally {
@@ -328,3 +384,59 @@ async function handleScriptSubmit(event) {
 }
 
 scriptForm.addEventListener("submit", handleScriptSubmit);
+
+async function handleFinalizeClick() {
+  clearError(finalizeError);
+  finalizeVideo.hidden = true;
+
+  const cards = Array.from(scenesList.children);
+  const scenes = cards.map((card) => card.getSceneData());
+
+  const missing = scenes.findIndex((s) => !s.image_data && !s.video_data);
+  if (missing !== -1) {
+    showError(finalizeError, `Сцена ${missing + 1}: немає ні картинки, ні відео - спочатку згенеруйте хоча б одне.`);
+    return;
+  }
+
+  finalizeButton.disabled = true;
+  finalizeStatus.textContent = "Синтезуємо озвучку й монтуємо відео...";
+
+  try {
+    const response = await fetch("/api/test/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenes, language: currentLanguage }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Не вдалося запустити монтаж");
+    }
+    const { job_id: jobId } = await response.json();
+
+    const POLL_INTERVAL_MS = 4000;
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const statusResponse = await fetch(`/api/test/finalize/${jobId}`);
+      if (!statusResponse.ok) {
+        throw new Error("Помилка при перевірці статусу монтажу");
+      }
+      const data = await statusResponse.json();
+      if (data.status === "done") {
+        finalizeVideo.src = data.video_url;
+        finalizeVideo.hidden = false;
+        finalizeStatus.textContent = "Готово!";
+        break;
+      }
+      if (data.status === "error") {
+        throw new Error(data.error || "Монтаж завершився помилкою");
+      }
+    }
+  } catch (err) {
+    showError(finalizeError, err.message);
+    finalizeStatus.textContent = "";
+  } finally {
+    finalizeButton.disabled = false;
+  }
+}
+
+finalizeButton.addEventListener("click", handleFinalizeClick);

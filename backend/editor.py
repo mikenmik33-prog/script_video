@@ -37,6 +37,25 @@ def _run_ffmpeg(args: list):
         raise RuntimeError(f"FFmpeg помилка (монтаж): {result.stderr.decode(errors='ignore')}")
 
 
+def _probe_media_duration(path: str) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"FFprobe помилка: {result.stderr.decode(errors='ignore')}")
+    return float(result.stdout.decode().strip())
+
+
+def _escape_drawtext(text: str) -> str:
+    """Екранує спецсимволи ffmpeg drawtext (\\, :, ', %) у тексті слова."""
+    text = text.replace("\\", "\\\\")
+    text = text.replace(":", "\\:")
+    text = text.replace("'", "\\'")
+    text = text.replace("%", "\\%")
+    return text
+
+
 def _create_scene_clip(frames: list, output_path: str, work_dir: str, clip_name: str):
     """Перетворює послідовність кадрів сцени (зображення + тривалість показу
     кожного - для динамічного виділення слів у субтитрах) на один
@@ -75,6 +94,80 @@ def _create_scene_clip(frames: list, output_path: str, work_dir: str, clip_name:
         "-preset", "ultrafast",
         output_path,
     ])
+
+
+def _create_scene_clip_from_video(video_path: str, subtitle_text: str, duration: float, work_dir: str, clip_name: str) -> str:
+    """Як _create_scene_clip, але з готового AI-відеокліпу сцени (fal.ai)
+    замість послідовності кадрів картинки.
+
+    Відео підганяється під РЕАЛЬНУ тривалість озвучки сцени - обрізається,
+    якщо довше, або "заморожує" останній кадр (tpad), якщо коротше (кліпи
+    fal.ai мають фіксовану тривалість 6с/10с, що рідко збігається з
+    тривалістю озвучки). Субтитри накладаються прямо на рухоме відео
+    через ffmpeg drawtext - для картинок субтитри "впечені" в кадри через
+    PIL (subtitles.generate_word_highlight_frames), а тут та сама
+    розкладка рядків/тривалостей (subtitles.compute_word_overlay_specs)
+    використовується для позиціонування drawtext-фільтрів замість
+    малювання."""
+    source_duration = _probe_media_duration(video_path)
+
+    if source_duration > duration + 0.02:
+        fitted_path = os.path.join(work_dir, f"{clip_name}_fitted.mp4")
+        _run_ffmpeg([
+            "-i", video_path,
+            "-t", f"{duration:.3f}",
+            "-an",
+            "-preset", "ultrafast",
+            fitted_path,
+        ])
+    elif source_duration < duration - 0.02:
+        fitted_path = os.path.join(work_dir, f"{clip_name}_fitted.mp4")
+        deficit = duration - source_duration
+        _run_ffmpeg([
+            "-i", video_path,
+            "-vf", f"tpad=stop_mode=clone:stop_duration={deficit:.3f}",
+            "-an",
+            "-preset", "ultrafast",
+            fitted_path,
+        ])
+    else:
+        fitted_path = video_path
+
+    specs = subtitles_module.compute_word_overlay_specs(subtitle_text, duration, WIDTH, HEIGHT)
+
+    filters = [
+        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease",
+        f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
+    ]
+
+    font_path = subtitles_module.FONT_PATH
+    font_size = subtitles_module.SUBTITLE_FONT_SIZE
+    outline_width = subtitles_module.SUBTITLE_OUTLINE_WIDTH
+    highlight_r, highlight_g, highlight_b = subtitles_module.SUBTITLE_HIGHLIGHT_COLOR
+    highlight_hex = f"0x{highlight_r:02X}{highlight_g:02X}{highlight_b:02X}"
+
+    for spec in specs:
+        word = _escape_drawtext(spec["word"])
+        common = (
+            f"fontfile={font_path}:text='{word}':x={spec['x']:.1f}:y={spec['y']:.1f}"
+            f":fontsize={font_size}:bordercolor=black:borderw={outline_width}"
+        )
+        # білий варіант слова видно ВЕСЬ час сцени, а жовтий - лише в
+        # момент, коли слово "звучить" - малюється поверх у ту саму
+        # позицію, тому виглядає як зміна кольору активного слова
+        filters.append(f"drawtext={common}:fontcolor=white")
+        filters.append(f"drawtext={common}:fontcolor={highlight_hex}:enable='between(t\\,{spec['start']:.3f}\\,{spec['end']:.3f})'")
+
+    output_path = os.path.join(work_dir, f"{clip_name}.mp4")
+    _run_ffmpeg([
+        "-i", fitted_path,
+        "-vf", ",".join(filters),
+        "-r", str(FPS),
+        "-pix_fmt", "yuv420p",
+        "-preset", "ultrafast",
+        output_path,
+    ])
+    return output_path
 
 
 def _build_transition_chain(clip_paths: list, clip_durations: list, transitions: list, output_path: str):
@@ -209,7 +302,7 @@ def _mix_audio(voice_path: str, music_path: str, output_path: str):
     ])
 
 
-def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: str, music_dir: str, output_path: str, progress_callback=None) -> str:
+def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: str, music_dir: str, output_path: str, progress_callback=None, scene_videos: list = None) -> str:
     """
     Головна функція монтажу.
 
@@ -224,10 +317,17 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
         найдовший етап конвеєра (особливо на слабких CPU безкоштовних
         хостингів), тому без цього прогрес-бар виглядав би "завислим"
         на весь час монтажу.
+    scene_videos      - необов'язковий список (той самий порядок, що й
+        scenes) шляхів до готових AI-відеокліпів (fal.ai) для окремих
+        сцен, або None на позиції сцени без відео - тоді для неї, як і
+        раніше, використовується scene_images. Дозволяє змішувати в
+        одному відео і статичні картинки, і "оживлені" AI-сцени.
 
     Повертає шлях до готового файлу (== output_path).
     """
     os.makedirs(work_dir, exist_ok=True)
+    if scene_videos is None:
+        scene_videos = [None] * len(scenes)
 
     # +5 - склеювання відео, склеювання голосу, музика, мікс аудіо, фінальний mux
     total_steps = len(scenes) + 5
@@ -242,16 +342,24 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
     clip_paths = []
     clip_durations = []
     transitions = []
-    for scene, image_path in zip(scenes, scene_images):
+    for scene, image_path, video_path in zip(scenes, scene_images, scene_videos):
         clip_name = f"scene_{scene['scene']:02d}"
-        frames = subtitles_module.generate_word_highlight_frames(
-            image_path, scene["subtitle"], scene["duration"], work_dir, clip_name,
-        )
 
-        clip_path = os.path.join(work_dir, f"{clip_name}.mp4")
-        _create_scene_clip(frames, clip_path, work_dir, clip_name)
+        if video_path:
+            clip_path = _create_scene_clip_from_video(
+                video_path, scene["subtitle"], scene["duration"], work_dir, clip_name,
+            )
+        else:
+            frames = subtitles_module.generate_word_highlight_frames(
+                image_path, scene["subtitle"], scene["duration"], work_dir, clip_name,
+            )
+            clip_path = os.path.join(work_dir, f"{clip_name}.mp4")
+            _create_scene_clip(frames, clip_path, work_dir, clip_name)
+
         clip_paths.append(clip_path)
-        clip_durations.append(sum(d for _, d in frames))
+        # generate_word_highlight_frames і _create_scene_clip_from_video
+        # обидва гарантують, що кліп триває саме scene["duration"]
+        clip_durations.append(scene["duration"])
         transitions.append(scene["transition"])
         _report_progress()
 

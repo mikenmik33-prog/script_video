@@ -462,8 +462,13 @@ button#submit-button:disabled {
   margin-top: 10px;
 }
 
-.test-continue-button:hover {
+.test-continue-button:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+.test-continue-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .test-images-row {

@@ -155,3 +155,48 @@ def generate_word_highlight_frames(image_path: str, subtitle_text: str, duration
             frames.append((frame_path, durations[global_index]))
             global_index += 1
     return frames
+
+
+def compute_word_overlay_specs(subtitle_text: str, duration: float, image_width: int, image_height: int) -> list:
+    """Рахує позицію (x, y) і часове вікно (start, end) кожного слова -
+    той самий розклад рядків/тривалостей, що й generate_word_highlight_frames,
+    але для НАКЛАДАННЯ субтитрів на вже готове ВІДЕО через ffmpeg drawtext
+    (editor._create_scene_clip_from_video), а не для малювання кадрів на
+    статичному зображенні через PIL.
+
+    Повертає список словників {"word", "x", "y", "start", "end"}."""
+    font = ImageFont.truetype(FONT_PATH, SUBTITLE_FONT_SIZE)
+    max_width = int(image_width * SUBTITLE_MAX_WIDTH_RATIO)
+
+    words = subtitle_text.split()
+    if not words:
+        return []
+
+    lines = _wrap_words(words, font, max_width)
+    durations = _compute_word_durations(words, duration)
+
+    line_height = SUBTITLE_FONT_SIZE + SUBTITLE_LINE_SPACING
+    block_height = line_height * len(lines)
+    base_y = image_height - SUBTITLE_BOTTOM_MARGIN - block_height
+    space_width = font.getlength(" ")
+
+    specs = []
+    global_index = 0
+    time_cursor = 0.0
+    for line_index, line_words in enumerate(lines):
+        line_width = sum(font.getlength(w) for w in line_words) + space_width * (len(line_words) - 1)
+        x = (image_width - line_width) / 2
+        y = base_y + line_index * line_height
+        for word in line_words:
+            word_duration = durations[global_index]
+            specs.append({
+                "word": word,
+                "x": x,
+                "y": y,
+                "start": time_cursor,
+                "end": time_cursor + word_duration,
+            })
+            x += font.getlength(word) + space_width
+            time_cursor += word_duration
+            global_index += 1
+    return specs

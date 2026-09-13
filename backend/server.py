@@ -462,6 +462,114 @@ def get_test_video_status(job_id: str):
     return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
 
+# --- Тестова панель: завершення повного відео з уже готових сцен -----
+#
+# На відміну від основного /api/generate, тут не генерується НІЧОГО
+# нового для візуалу - беруться готові картинки/відео сцен, які
+# користувач уже підготував і схвалив на /test, і монтується з них
+# фінальне відео (озвучка, субтитри, переходи, музика) - той самий
+# editor.build_video(), що й в основному пайплайні.
+
+finalize_jobs: dict = {}
+
+
+class FinalizeSceneInput(BaseModel):
+    voice_text: str
+    subtitle: str
+    transition: str = "fade"
+    image_data: str | None = None
+    video_data: str | None = None
+
+
+class FinalizeRequest(BaseModel):
+    scenes: list[FinalizeSceneInput]
+    language: str = "uk"
+
+
+def _decode_data_uri(data_uri: str) -> bytes:
+    _, _, encoded = data_uri.partition(",")
+    return base64.b64decode(encoded)
+
+
+def _run_finalize_job(job_id: str, scene_inputs: list, language: str):
+    job = finalize_jobs[job_id]
+    job_dir = os.path.join(TEST_OUTPUT_DIR, "final", job_id)
+    scenes_dir = os.path.join(job_dir, "scenes")
+    videos_dir = os.path.join(job_dir, "videos")
+    audio_dir = os.path.join(job_dir, "audio")
+    work_dir = os.path.join(job_dir, "work")
+    os.makedirs(scenes_dir, exist_ok=True)
+    os.makedirs(videos_dir, exist_ok=True)
+
+    try:
+        scenes = []
+        scene_images = []
+        scene_videos = []
+        for i, item in enumerate(scene_inputs, start=1):
+            if not item.video_data and not item.image_data:
+                raise ValueError(f"Сцена {i}: немає ні картинки, ні відео - спочатку згенеруйте хоча б одне")
+
+            scenes.append({
+                "scene": i,
+                "duration": 5,  # орієнтовна оцінка - voice_generator замінить реальною тривалістю
+                "voice_text": item.voice_text,
+                "subtitle": item.subtitle,
+                "transition": item.transition,
+            })
+
+            image_path = None
+            if item.image_data:
+                image_path = os.path.join(scenes_dir, f"scene_{i:02d}.png")
+                with open(image_path, "wb") as f:
+                    f.write(_decode_data_uri(item.image_data))
+            scene_images.append(image_path)
+
+            video_path = None
+            if item.video_data:
+                video_path = os.path.join(videos_dir, f"scene_{i:02d}.mp4")
+                with open(video_path, "wb") as f:
+                    f.write(_decode_data_uri(item.video_data))
+            scene_videos.append(video_path)
+
+        voice_files = voice_generator.generate_all_voices(scenes, audio_dir, language)
+
+        final_video_path = os.path.join(job_dir, "final.mp4")
+        editor.build_video(
+            scenes=scenes,
+            scene_images=scene_images,
+            voice_files=voice_files,
+            work_dir=work_dir,
+            music_dir=MUSIC_DIR,
+            output_path=final_video_path,
+            scene_videos=scene_videos,
+        )
+
+        job["status"] = "done"
+        job["video_url"] = f"/output/_test/final/{job_id}/final.mp4"
+    except Exception as exc:
+        job["status"] = "error"
+        job["error"] = str(exc)
+
+
+@app.post("/api/test/finalize")
+def test_finalize_video(request: FinalizeRequest, background_tasks: BackgroundTasks):
+    if not request.scenes:
+        raise HTTPException(400, "Немає сцен для монтажу")
+
+    job_id = uuid.uuid4().hex[:10]
+    finalize_jobs[job_id] = {"status": "processing", "video_url": None, "error": None}
+    background_tasks.add_task(_run_finalize_job, job_id, request.scenes, request.language)
+    return {"job_id": job_id}
+
+
+@app.get("/api/test/finalize/{job_id}")
+def get_finalize_status(job_id: str):
+    job = finalize_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Задачу не знайдено")
+    return job
+
+
 # --- Роздача frontend-файлів (лежать у корені проєкту, не в backend/) ---
 
 

@@ -15,9 +15,9 @@
       </nav>
     </div>
     <p class="subtitle">
-      Швидка ітерація коротких сценаріїв (до 15с) і візуальних промтів -
-      без повного циклу монтажу. Картинки безкоштовні (Pollinations),
-      відео платне (fal.ai) і генерується лише за вашим явним запитом.
+      Швидка ітерація коротких сценаріїв (до 15с) і візуальних промтів.
+      Картинки безкоштовні (Hugging Face), відео платне (fal.ai) і
+      генерується лише за вашим явним запитом.
     </p>
   </header>
 
@@ -58,6 +58,20 @@
     <section class="panel" id="scenes-panel" hidden>
       <h2>2. Сцени - редагуйте й перевіряйте промти</h2>
       <div id="scenes-list" class="test-scenes-list"></div>
+    </section>
+
+    <section class="panel" id="finalize-panel" hidden>
+      <h2>3. Завершити повне відео</h2>
+      <p class="subtitle">
+        Збирає озвучку, субтитри й монтаж (переходи, музика) з готових
+        картинок/відео сцен вище - у сцен без згенерованого AI-відео
+        використовується картинка з підсвіченими субтитрами, у сцен із
+        відео субтитри накладаються прямо на рух.
+      </p>
+      <button type="button" id="finalize-button" class="test-continue-button">🎬 Завершити повне відео</button>
+      <p id="finalize-error" class="error-message" hidden></p>
+      <p id="finalize-status" class="test-status"></p>
+      <video id="finalize-video" class="test-preview-video" controls hidden></video>
     </section>
   </main>
 
