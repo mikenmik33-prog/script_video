@@ -15,7 +15,7 @@ import subprocess
 from backend import subtitles as subtitles_module
 
 WIDTH, HEIGHT = 1080, 1920
-FPS = 30
+FPS = 24  # 24 замість 30 - помітно менше кадрів для кодування (легше для CPU)
 TRANSITION_DURATION = 0.35
 MUSIC_VOLUME = 0.18
 
@@ -111,20 +111,35 @@ def _mix_audio(voice_path: str, music_path: str, output_path: str):
     ])
 
 
-def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: str, music_dir: str, output_path: str) -> str:
+def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: str, music_dir: str, output_path: str, progress_callback=None) -> str:
     """
     Головна функція монтажу.
 
-    scenes       - сцени сценарію (тривалість, субтитр, тип переходу)
-    scene_images - шляхи до згенерованих зображень сцен (той самий порядок)
-    voice_files  - шляхи до аудіофайлів озвучки сцен (той самий порядок)
-    work_dir     - тимчасова робоча директорія для проміжних файлів
-    music_dir    - директорія з фоновою музикою (assets/music)
-    output_path  - шлях до фінального MP4
+    scenes            - сцени сценарію (тривалість, субтитр, тип переходу)
+    scene_images      - шляхи до згенерованих зображень сцен (той самий порядок)
+    voice_files       - шляхи до аудіофайлів озвучки сцен (той самий порядок)
+    work_dir          - тимчасова робоча директорія для проміжних файлів
+    music_dir         - директорія з фоновою музикою (assets/music)
+    output_path       - шлях до фінального MP4
+    progress_callback - необов'язкова функція(fraction: float 0..1), яку
+        викликаємо після кожного важкого кроку. Кодування відео - це
+        найдовший етап конвеєра (особливо на слабких CPU безкоштовних
+        хостингів), тому без цього прогрес-бар виглядав би "завислим"
+        на весь час монтажу.
 
     Повертає шлях до готового файлу (== output_path).
     """
     os.makedirs(work_dir, exist_ok=True)
+
+    # +5 - склеювання відео, склеювання голосу, музика, мікс аудіо, фінальний mux
+    total_steps = len(scenes) + 5
+    completed_steps = 0
+
+    def _report_progress():
+        nonlocal completed_steps
+        completed_steps += 1
+        if progress_callback is not None:
+            progress_callback(completed_steps / total_steps)
 
     clip_paths = []
     for scene, image_path in zip(scenes, scene_images):
@@ -134,9 +149,11 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
         clip_path = os.path.join(work_dir, f"clip_{scene['scene']:02d}.mp4")
         _create_scene_clip(subtitled_path, scene["duration"], scene["transition"], clip_path)
         clip_paths.append(clip_path)
+        _report_progress()
 
     video_only_path = os.path.join(work_dir, "video_only.mp4")
     _concat_media(clip_paths, os.path.join(work_dir, "clips.txt"), video_only_path)
+    _report_progress()
 
     voice_track_path = os.path.join(work_dir, "voice_track.wav")
     _concat_media(
@@ -145,12 +162,15 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
         voice_track_path,
         extra_args=["-ar", "44100", "-ac", "2"],
     )
+    _report_progress()
 
     total_duration = sum(scene["duration"] for scene in scenes)
     music_track_path = _build_music_track(total_duration, music_dir, work_dir)
+    _report_progress()
 
     mixed_audio_path = os.path.join(work_dir, "mixed_audio.wav")
     _mix_audio(voice_track_path, music_track_path, mixed_audio_path)
+    _report_progress()
 
     _run_ffmpeg([
         "-i", video_only_path,
@@ -161,5 +181,6 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
         "-movflags", "+faststart",
         output_path,
     ])
+    _report_progress()
 
     return output_path

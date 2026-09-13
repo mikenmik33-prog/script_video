@@ -71,7 +71,22 @@ def _set_stage(job: dict, stage: str, status: str):
     if status == "active":
         job["current_stage"] = stage
     done_count = sum(1 for s in job["stages"].values() if s == "done")
-    job["progress"] = int(done_count / len(STAGE_ORDER) * 100)
+    job["progress"] = round(done_count / len(STAGE_ORDER) * 100, 3)
+
+
+def _make_stage_progress_callback(job: dict, stage: str):
+    """Повертає функцію(fraction: 0..1), яка плавно рухає job["progress"]
+    УСЕРЕДИНІ одного етапу (за номером етапу в STAGE_ORDER) - щоб під час
+    довгих кроків (найдовший - монтаж) відсоток не "завис", а помітно
+    рухався, навіть на дуже слабкому CPU безкоштовних хостингів."""
+    stage_index = STAGE_ORDER.index(stage)
+    stage_span = 100 / len(STAGE_ORDER)
+    base_progress = stage_index * stage_span
+
+    def callback(fraction: float):
+        job["progress"] = round(base_progress + fraction * stage_span, 3)
+
+    return callback
 
 
 def run_pipeline(job_id: str):
@@ -119,6 +134,7 @@ def run_pipeline(job_id: str):
             work_dir=work_dir,
             music_dir=MUSIC_DIR,
             output_path=final_video_path,
+            progress_callback=_make_stage_progress_callback(job, "editing"),
         )
         _set_stage(job, "editing", "done")
 

@@ -56,7 +56,9 @@ function renderStages(stages, progress) {
     item.querySelector(".stage-icon").textContent = STAGE_ICONS[status];
   });
   progressBarFill.style.width = `${progress}%`;
-  progressPercent.textContent = `${progress}%`;
+  // 3 знаки після коми - щоб відсоток було видно "живим" навіть під час
+  // довгого етапу монтажу, а не завислим на одному цілому числі
+  progressPercent.textContent = `${progress.toFixed(3)}%`;
 }
 
 function stopPolling() {
