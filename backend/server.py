@@ -12,6 +12,9 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 import json
 import logging
 import os
+import shutil
+import threading
+import time
 import uuid
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -31,9 +34,48 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 MUSIC_DIR = os.path.join(ASSETS_DIR, "music")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
 
 ALLOWED_DURATIONS = (30, 60, 90)
 STAGE_ORDER = ["script", "scenes", "visual", "voice", "subtitles", "editing", "export"]
+
+# Тестова панель (/test) не має власного очищення - без цього файли з
+# кожного кліку "перегенерувати" накопичувались би на диску назавжди,
+# поки контейнер живий. Максимальний вік файлу і як часто перевіряти.
+TEST_FILE_MAX_AGE_SECONDS = 2 * 60 * 60  # 2 години
+TEST_CLEANUP_INTERVAL_SECONDS = 30 * 60  # перевіряти раз на 30 хв
+
+
+def _clear_test_output_dir():
+    """Повністю очищує тестові файли - викликається один раз при старті."""
+    shutil.rmtree(TEST_OUTPUT_DIR, ignore_errors=True)
+
+
+def _delete_old_test_files():
+    """Видаляє тестові файли, старші за TEST_FILE_MAX_AGE_SECONDS."""
+    if not os.path.isdir(TEST_OUTPUT_DIR):
+        return
+    now = time.time()
+    for root, _dirs, filenames in os.walk(TEST_OUTPUT_DIR):
+        for filename in filenames:
+            path = os.path.join(root, filename)
+            try:
+                if now - os.path.getmtime(path) > TEST_FILE_MAX_AGE_SECONDS:
+                    os.remove(path)
+            except OSError:
+                pass  # файл могли видалити паралельно - не критично
+
+
+def _test_cleanup_loop():
+    while True:
+        time.sleep(TEST_CLEANUP_INTERVAL_SECONDS)
+        _delete_old_test_files()
+
+
+def _start_test_cleanup():
+    _clear_test_output_dir()
+    thread = threading.Thread(target=_test_cleanup_loop, daemon=True)
+    thread.start()
 
 app = FastAPI(title="AI Video Generator (DEMO)")
 
@@ -52,6 +94,11 @@ jobs: dict = {}
 @app.on_event("startup")
 def _start_trending_ideas_refresh():
     trends.start_background_refresh()
+
+
+@app.on_event("startup")
+def _start_test_output_cleanup():
+    _start_test_cleanup()
 
 
 class GenerateRequest(BaseModel):
@@ -231,7 +278,6 @@ def get_result(job_id: str):
 # --- Тестова панель: швидка ітерація коротких сценаріїв (до 15с) і
 # візуальних промтів, без повного циклу генерації відео/монтажу. ---
 
-TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
 TEST_MAX_DURATION = 15
 
 # Окрема in-memory "база" для тестових video-задач (Kling) - та сама
