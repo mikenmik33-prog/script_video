@@ -10,6 +10,7 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 """
 
 import json
+import logging
 import os
 import uuid
 
@@ -20,6 +21,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend import editor, scene_generator, script_generator, subtitles, trends, voice_generator
+
+# без цього logger.warning() у backend/*.py міг би тихо загубитись і не
+# потрапити в консоль/логи хостингу (Python не пише логи нікуди, поки
+# явно не налаштований хоча б один handler)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
