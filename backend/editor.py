@@ -1,9 +1,9 @@
 """
 Модуль монтажу відео через FFmpeg.
 
-Збирає з окремих сцен (зображення з випаленими субтитрами + озвучка)
-одне вертикальне відео 1080x1920, додає фонову музику і експортує
-готовий MP4.
+Збирає з окремих сцен (зображення + динамічні субтитри "слово за
+словом" від subtitles.py + озвучка) одне вертикальне відео 1080x1920,
+додає фонову музику і експортує готовий MP4.
 
 Кожен крок - окрема невелика функція навколо одного виклику FFmpeg,
 щоб конвеєр було легко читати і змінювати.
@@ -26,8 +26,24 @@ def _run_ffmpeg(args: list):
         raise RuntimeError(f"FFmpeg помилка (монтаж): {result.stderr.decode(errors='ignore')}")
 
 
-def _create_scene_clip(image_path: str, duration: float, transition: str, output_path: str):
-    """Перетворює одне статичне зображення сцени на відеокліп потрібної тривалості."""
+def _create_scene_clip(frames: list, transition: str, output_path: str, work_dir: str, clip_name: str):
+    """Перетворює послідовність кадрів сцени (зображення + тривалість показу
+    кожного - для динамічного виділення слів у субтитрах) на один
+    відеокліп через FFmpeg concat demuxer (один виклик FFmpeg, навіть
+    якщо кадрів багато - важливо для слабких CPU безкоштовних хостингів)."""
+    total_duration = sum(d for _, d in frames)
+
+    list_path = os.path.join(work_dir, f"{clip_name}_frames.txt")
+    with open(list_path, "w", encoding="utf-8") as f:
+        for frame_path, frame_duration in frames:
+            absolute = os.path.abspath(frame_path).replace("'", "'\\''")
+            f.write(f"file '{absolute}'\n")
+            f.write(f"duration {frame_duration}\n")
+        # concat demuxer вимагає повторити останній файл без duration,
+        # інакше тривалість останнього кадру ігнорується
+        last_absolute = os.path.abspath(frames[-1][0]).replace("'", "'\\''")
+        f.write(f"file '{last_absolute}'\n")
+
     filters = [
         f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease",
         f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
@@ -36,14 +52,14 @@ def _create_scene_clip(image_path: str, duration: float, transition: str, output
     # "cut" - різкий перехід без ефекту, інакше - просте плавне
     # затемнення на початку/кінці кліпу (легкий у реалізації аналог переходу)
     if transition != "cut":
-        fade_out_start = max(duration - TRANSITION_DURATION, 0)
+        fade_out_start = max(total_duration - TRANSITION_DURATION, 0)
         filters.append(f"fade=t=in:st=0:d={TRANSITION_DURATION}")
         filters.append(f"fade=t=out:st={fade_out_start}:d={TRANSITION_DURATION}")
 
     _run_ffmpeg([
-        "-loop", "1",
-        "-t", str(duration),
-        "-i", image_path,
+        "-f", "concat",
+        "-safe", "0",
+        "-i", list_path,
         "-vf", ",".join(filters),
         "-r", str(FPS),
         "-pix_fmt", "yuv420p",
@@ -143,11 +159,13 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
 
     clip_paths = []
     for scene, image_path in zip(scenes, scene_images):
-        subtitled_path = os.path.join(work_dir, f"subtitled_{scene['scene']:02d}.png")
-        subtitles_module.burn_subtitle(image_path, scene["subtitle"], subtitled_path)
+        clip_name = f"scene_{scene['scene']:02d}"
+        frames = subtitles_module.generate_word_highlight_frames(
+            image_path, scene["subtitle"], scene["duration"], work_dir, clip_name,
+        )
 
-        clip_path = os.path.join(work_dir, f"clip_{scene['scene']:02d}.mp4")
-        _create_scene_clip(subtitled_path, scene["duration"], scene["transition"], clip_path)
+        clip_path = os.path.join(work_dir, f"{clip_name}.mp4")
+        _create_scene_clip(frames, scene["transition"], clip_path, work_dir, clip_name)
         clip_paths.append(clip_path)
         _report_progress()
 
