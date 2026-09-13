@@ -113,7 +113,10 @@ def run_pipeline(job_id: str):
         _set_stage(job, "scenes", "done")
 
         _set_stage(job, "visual", "active")
-        scene_images = scene_generator.generate_all_scenes(scenes, job["style"], scenes_dir)
+        scene_images = scene_generator.generate_all_scenes(
+            scenes, job["style"], scenes_dir,
+            progress_callback=_make_stage_progress_callback(job, "visual"),
+        )
         _set_stage(job, "visual", "done")
 
         _set_stage(job, "voice", "active")

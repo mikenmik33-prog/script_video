@@ -9,10 +9,12 @@ hook -> основна частина -> висновок, автоматичн�
 шаблонний генератор нижче - він не залежить від жодного зовнішнього
 сервісу.
 
-Кожна сцена містить два тексти: voice_text (для озвучки - числа
-словами) і subtitle (для екрану - числа цифрами). "duration" на цьому
-етапі лише орієнтовна оцінка - voice_generator пізніше замінить її на
-реальну тривалість згенерованої озвучки.
+Кожна сцена містить три тексти: voice_text (для озвучки - числа
+словами), subtitle (для екрану - числа цифрами) і visual_prompt
+(детальний опис картинки англійською для генератора зображень,
+scene_generator.py). "duration" на цьому етапі лише орієнтовна оцінка -
+voice_generator пізніше замінить її на реальну тривалість згенерованої
+озвучки.
 """
 
 from backend import ai
@@ -101,17 +103,20 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
     else:
         template = _get_template(language)
         lines = _build_lines(topic, template, scene_count)
-        # DEMO-шаблон не містить чисел, тому voice_text і subtitle однакові
-        scene_texts = [{"voice_text": line, "subtitle": line} for line in lines]
+        # DEMO-шаблон не має ні чисел, ні реального image-промта від AI:
+        # voice_text/subtitle однакові, а visual_prompt - проста заглушка
+        scene_texts = [
+            {"voice_text": line, "subtitle": line, "visual_prompt": f"{topic}, scene {i}"}
+            for i, line in enumerate(lines, start=1)
+        ]
 
     scenes = []
     for index, (texts, scene_duration) in enumerate(zip(scene_texts, durations), start=1):
-        visual_prompt = f"{topic} - {'сцена' if language == 'uk' else 'scene'} {index}"
         scenes.append({
             "scene": index,
             "duration": scene_duration,
             "voice_text": texts["voice_text"],
-            "visual_prompt": visual_prompt,
+            "visual_prompt": texts["visual_prompt"],
             "subtitle": texts["subtitle"],
             "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
         })

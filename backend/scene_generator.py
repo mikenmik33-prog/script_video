@@ -1,12 +1,11 @@
 """
-DEMO-генератор візуалу для сцен.
+Генератор візуалу для сцен.
 
-Система спроєктована так, щоб пізніше можна було підключити будь-який
-API генерації зображень або відео - достатньо реалізувати
-ai.generate_visual_with_ai(), не змінюючи решту коду.
-
-На першому етапі для кожної сцени створюється локальне тестове
-зображення 1080x1920 (кольоровий фон + підпис сцени).
+Спочатку пробує реальну генерацію зображення через ai.py (Pollinations.ai,
+за промтом visual_prompt від Gemini + стильовий суфікс нижче). Якщо
+запит не вдався (немає інтернету, сервіс недоступний), для сцени
+створюється тестове кольорове зображення 1080x1920 з підписом - це
+дозволяє конвеєру працювати навіть повністю офлайн.
 """
 
 import os
@@ -19,7 +18,8 @@ WIDTH, HEIGHT = 1080, 1920
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "DejaVuSans-Bold.ttf")
 
-# Кольорові палітри для різних стилів відео (верхній і нижній колір градієнта)
+# Кольорові палітри для різних стилів відео (верхній і нижній колір градієнта) -
+# використовуються лише в офлайн-заглушці, якщо реальна генерація не вдалась
 STYLE_PALETTES = {
     "cinematic": [(20, 24, 38), (44, 52, 84)],
     "minimal": [(245, 245, 245), (225, 225, 225)],
@@ -27,6 +27,14 @@ STYLE_PALETTES = {
     "news": [(30, 30, 30), (120, 20, 20)],
 }
 DEFAULT_STYLE = "cinematic"
+
+# Додається до visual_prompt від AI, щоб зображення відповідало обраному стилю відео
+STYLE_PROMPT_SUFFIXES = {
+    "cinematic": "cinematic lighting, dramatic, film still, high detail",
+    "minimal": "minimalist, clean, flat design, simple shapes, soft colors",
+    "energetic": "vibrant colors, dynamic, high energy, bold composition",
+    "news": "photorealistic, documentary style, serious tone, neutral lighting",
+}
 
 
 def _gradient_background(style: str, scene_index: int) -> Image.Image:
@@ -73,8 +81,11 @@ def _draw_centered_lines(draw: ImageDraw.ImageDraw, lines: list, font: ImageFont
 
 
 def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
-    """Створює одне тестове зображення для сцени і зберігає його на диск."""
-    ai_result = ai.generate_visual_with_ai(scene["visual_prompt"], output_path)
+    """Створює одне зображення для сцени і зберігає його на диск."""
+    style_suffix = STYLE_PROMPT_SUFFIXES.get(style, STYLE_PROMPT_SUFFIXES[DEFAULT_STYLE])
+    full_prompt = f"{scene['visual_prompt']}, {style_suffix}, vertical 9:16, no text, no watermark"
+
+    ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
     if ai_result is not None:
         return ai_result
 
@@ -95,13 +106,21 @@ def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
     return output_path
 
 
-def generate_all_scenes(scenes: list, style: str, output_dir: str) -> list:
-    """Генерує зображення для всіх сцен. Повертає список шляхів до файлів (у порядку сцен)."""
+def generate_all_scenes(scenes: list, style: str, output_dir: str, progress_callback=None) -> list:
+    """Генерує зображення для всіх сцен. Повертає список шляхів до файлів (у порядку сцен).
+
+    progress_callback(fraction: 0..1) - необов'язковий, викликається
+    після кожної сцени. Реальна генерація зображення - це мережевий
+    запит і може займати кілька секунд на сцену, тому без цього
+    прогрес-бар виглядав би "завислим" на весь час цього етапу.
+    """
     os.makedirs(output_dir, exist_ok=True)
     paths = []
-    for scene in scenes:
+    for i, scene in enumerate(scenes, start=1):
         filename = f"scene_{scene['scene']:02d}.png"
         path = os.path.join(output_dir, filename)
         generate_scene_image(scene, style, path)
         paths.append(path)
+        if progress_callback is not None:
+            progress_callback(i / len(scenes))
     return paths

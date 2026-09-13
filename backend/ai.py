@@ -2,9 +2,16 @@
 Централізований модуль для роботи із зовнішніми AI-сервісами.
 
 Це єдине місце, яке потрібно буде змінити, коли підключатимуться нові
-AI-сервіси (наприклад платна генерація зображень/відео).
+AI-сервіси (наприклад платна генерація зображень/відео вищої якості).
 
-- Сценарій: Gemini API (потрібен GEMINI_API_KEY, безкоштовний).
+- Сценарій (текст + промти сцен): Gemini API (потрібен GEMINI_API_KEY,
+  безкоштовний).
+- Візуал: Pollinations.ai - безкоштовний генератор зображень без
+  API-ключа й без реєстрації (публічний сервіс, працює через звичайний
+  HTTP-запит). Примітка: генерація зображень безпосередньо через
+  Gemini ("Nano Banana") існує, але на безкоштовному тарифі Gemini її
+  квота дорівнює нулю (потрібен платний білінг) - тому для реальної
+  безкоштовності обрано Pollinations.
 - Озвучка: edge-tts - безкоштовний, без API-ключа (використовує
   публічний сервіс синтезу мовлення Microsoft Edge). Це неофіційна
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
@@ -13,9 +20,9 @@ AI-сервіси (наприклад платна генерація зобра
 
 Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
 збій відповіді) - відповідна generate_*_with_ai() повертає None, і
-викликач (script_generator / voice_generator) переходить на локальну
-DEMO-заглушку. Це гарантує, що застосунок ніколи не "падає" через
-проблеми з зовнішнім сервісом.
+викликач (script_generator / scene_generator / voice_generator)
+переходить на локальну DEMO-заглушку. Це гарантує, що застосунок
+ніколи не "падає" через проблеми з зовнішнім сервісом.
 """
 
 import asyncio
@@ -23,6 +30,7 @@ import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from dotenv import load_dotenv
@@ -45,6 +53,9 @@ GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
 
+POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
+POLLINATIONS_TIMEOUT_SECONDS = 60
+
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
     "uk": "uk-UA-PolinaNeural",
@@ -59,7 +70,7 @@ def has_text_api() -> bool:
 
 
 def has_visual_api() -> bool:
-    return bool(VIDEO_API_KEY)
+    return True  # Pollinations.ai безкоштовний і не потребує ключа
 
 
 def has_voice_api() -> bool:
@@ -87,7 +98,7 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Перша сцена - сильний hook, що одразу чіпляє увагу. "
         "Остання сцена - короткий висновок і заклик підписатись. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
-        "Для кожної сцени поверни ДВА варіанти тексту:\n"
+        "Для кожної сцени поверни ТРИ поля:\n"
         "- voice_text - текст для озвучки голосом. Усі числа тут пиши "
         "словами, не цифрами, у правильній граматичній формі за "
         "контекстом (наприклад: «333» -> «триста тридцять три», але "
@@ -96,11 +107,19 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "- subtitle - той самий текст для субтитрів на екрані, але "
         "числа тут пиши звичайними цифрами (наприклад «333», «1986 рік», "
         "«5 хвилин»), як їх зазвичай пишуть у субтитрах.\n"
+        "- visual_prompt - детальний ОПИС КАРТИНКИ англійською мовою для "
+        "AI-генератора зображень: що саме має бути зображено в цій сцені "
+        "(предмет, місце дії, дія, атмосфера, освітлення). Це промт для "
+        "генерації зображення, а НЕ переклад voice_text. Без жодного "
+        "тексту/літер/цифр/водяних знаків на самому зображенні. Вертикальна "
+        "композиція (9:16), фотореалістичний або кінематографічний стиль.\n"
         f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
-        'формату {"voice_text": "...", "subtitle": "..."}, без markdown '
-        "і без пояснень. Приклад: "
+        'формату {"voice_text": "...", "subtitle": "...", "visual_prompt": '
+        '"..."}, без markdown і без пояснень. Приклад: '
         '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
-        '"subtitle": "У 1986 році..."}]'
+        '"subtitle": "У 1986 році...", "visual_prompt": "A Soviet nuclear '
+        'power plant control room at night, dim red warning lights, tense '
+        'atmosphere, cinematic, vertical composition"}]'
     )
 
 
@@ -123,9 +142,9 @@ def _call_gemini(prompt: str) -> str:
 
 
 def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
-    """Генерує текст сцен (окремо voice_text і subtitle) через Gemini API.
+    """Генерує текст і промт візуалу для кожної сцени через Gemini API.
 
-    Повертає список словників {"voice_text": ..., "subtitle": ...}
+    Повертає список словників {"voice_text", "subtitle", "visual_prompt"}
     довжиною scene_count, або None - якщо ключа немає чи запит не
     вдався (тоді script_generator використовує локальний DEMO-шаблон).
     """
@@ -145,7 +164,12 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
         for scene in scenes:
             voice_text = str(scene["voice_text"]).strip()
             subtitle = str(scene.get("subtitle", voice_text)).strip()
-            result.append({"voice_text": voice_text, "subtitle": subtitle})
+            visual_prompt = str(scene.get("visual_prompt", topic)).strip()
+            result.append({
+                "voice_text": voice_text,
+                "subtitle": subtitle,
+                "visual_prompt": visual_prompt,
+            })
         return result
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.warning("Gemini API недоступний (%s), використовуємо DEMO-шаблон", exc)
@@ -153,13 +177,22 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
 
 
 def generate_visual_with_ai(prompt: str, output_path: str):
-    """Місце для підключення реального генератора зображень/відео.
+    """Генерує зображення сцени через Pollinations.ai (безкоштовно, без ключа).
 
-    Повертає шлях до збереженого файлу або None, якщо ключа немає.
+    Повертає шлях до збереженого файлу, або None - якщо запит не
+    вдався (тоді scene_generator створює тестове кольорове зображення).
     """
-    if not has_visual_api():
+    url = POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt)) + "?width=1080&height=1920&nologo=true"
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:
+            image_bytes = response.read()
+        with open(output_path, "wb") as f:
+            f.write(image_bytes)
+        return output_path
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        logger.warning("Pollinations.ai недоступний (%s), використовуємо тестове зображення", exc)
         return None
-    raise NotImplementedError("Реальний API генерації візуалу ще не підключено")
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):
