@@ -9,8 +9,11 @@ AI-сервіси (наприклад платна генерація зобра
 - Візуал: Hugging Face Inference API (модель FLUX.1-schnell) -
   безкоштовно, без водяного знаку (це прямий вивід моделі, без
   сервісного логотипу), потрібен безкоштовний HUGGINGFACE_API_KEY.
-  Якщо його немає (або запит не вдався) - резервний варіант
-  Pollinations.ai (теж безкоштовно, без ключа, але з водяним знаком).
+  Резервного варіанту свідомо немає - Pollinations.ai пробували
+  раніше, але він завжди додає водяний знак (навіть з токеном), тому
+  чесна відмова (тестове зображення) краща за тихе підсовування
+  картинки з чужим логотипом. Якщо Hugging Face недоступний -
+  generate_visual_with_ai() повертає None.
   Примітка: генерація зображень безпосередньо через Gemini ("Nano
   Banana") існує, але на безкоштовному тарифі Gemini її квота
   дорівнює нулю (потрібен платний білінг).
@@ -43,7 +46,6 @@ import os
 import random
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from dotenv import load_dotenv
@@ -62,7 +64,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 FAL_API_KEY = os.getenv("FAL_API_KEY", "").strip()
-POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
@@ -76,8 +77,6 @@ FAL_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
 FAL_POLL_INTERVAL_SECONDS = 5
 FAL_MAX_WAIT_SECONDS = 180
 
-POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
-POLLINATIONS_TIMEOUT_SECONDS = 60
 IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
 
 HUGGINGFACE_MODEL = "black-forest-labs/FLUX.1-schnell"
@@ -94,10 +93,6 @@ DEMO_MODE = not (OPENAI_API_KEY or GEMINI_API_KEY or VIDEO_API_KEY or TTS_API_KE
 
 def has_text_api() -> bool:
     return bool(OPENAI_API_KEY or GEMINI_API_KEY)
-
-
-def has_visual_api() -> bool:
-    return True  # Pollinations.ai безкоштовний і не потребує ключа
 
 
 def has_voice_api() -> bool:
@@ -269,53 +264,24 @@ def _generate_image_with_huggingface(prompt: str, output_path: str):
     return output_path
 
 
-def _generate_image_with_pollinations(prompt: str, output_path: str) -> str:
-    """Резервний безкоштовний генератор зображень (без ключа, але з
-    водяним знаком - див. docstring generate_visual_with_ai)."""
-    # Pollinations кешує результат за самим текстом промту - без
-    # випадкового seed повторний запит з тим самим текстом повертає
-    # ТУ САМУ картинку (важливо для кнопки "перегенерувати" на /test)
-    seed = random.randint(0, 2**31 - 1)
-    url = (
-        POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt))
-        + f"?width={IMAGE_WIDTH}&height={IMAGE_HEIGHT}&nologo=true&seed={seed}"
-    )
-    headers = {"User-Agent": "Mozilla/5.0"}
-    if POLLINATIONS_API_KEY:
-        headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
-        url += f"&token={urllib.parse.quote(POLLINATIONS_API_KEY)}"
-
-    request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=POLLINATIONS_TIMEOUT_SECONDS) as response:
-        image_bytes = response.read()
-    with open(output_path, "wb") as f:
-        f.write(image_bytes)
-    return output_path
-
-
 def generate_visual_with_ai(prompt: str, output_path: str):
-    """Генерує зображення сцени.
+    """Генерує зображення сцени через Hugging Face Inference API
+    (безкоштовно, без водяного знаку).
 
-    Порядок спроб:
-    1. Hugging Face Inference API (безкоштовно, без водяного знаку) -
-       якщо заданий HUGGINGFACE_API_KEY.
-    2. Pollinations.ai (безкоштовно, без ключа, але з водяним знаком) -
-       резервний варіант.
-
-    Повертає шлях до збереженого файлу, або None - якщо обидва запити
-    не вдались (тоді scene_generator створює тестове кольорове
-    зображення).
+    Резервний варіант Pollinations.ai свідомо прибрано - він завжди
+    додавав водяний знак навіть з токеном, тому "запасний" результат
+    був гіршим за чесну відмову. Якщо Hugging Face недоступний -
+    повертає None, і scene_generator створює тестове кольорове
+    зображення (це одразу видно й зрозуміло, на відміну від тихого
+    підсовування картинки з чужим водяним знаком).
     """
-    if HUGGINGFACE_API_KEY:
-        try:
-            return _generate_image_with_huggingface(prompt, output_path)
-        except Exception as exc:
-            logger.warning("Hugging Face недоступний (%s), пробуємо Pollinations.ai", exc)
+    if not HUGGINGFACE_API_KEY:
+        return None
 
     try:
-        return _generate_image_with_pollinations(prompt, output_path)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logger.warning("Pollinations.ai недоступний (%s), використовуємо тестове зображення", exc)
+        return _generate_image_with_huggingface(prompt, output_path)
+    except Exception as exc:
+        logger.warning("Hugging Face недоступний (%s), використовуємо тестове зображення", exc)
         return None
 
 
