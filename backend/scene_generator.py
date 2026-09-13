@@ -83,12 +83,14 @@ def _draw_centered_lines(draw: ImageDraw.ImageDraw, lines: list, font: ImageFont
 def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
     """Створює одне зображення для сцени і зберігає його на диск."""
     style_suffix = STYLE_PROMPT_SUFFIXES.get(style, STYLE_PROMPT_SUFFIXES[DEFAULT_STYLE])
-    # "cinematic composition, professional lighting" додається завжди,
-    # незалежно від обраного стилю - кожна картинка має виглядати
-    # кінематографічно, а стиль лише додає свій відтінок зверху
+    # "cinematic composition, professional lighting" і фотореалізм
+    # додаються завжди, незалежно від обраного стилю - кожна картинка
+    # має виглядати як реальна фотографія/кінокадр, а не цифровий
+    # малюнок/арт, а стиль лише додає свій відтінок зверху
     full_prompt = (
-        f"{scene['visual_prompt']}, cinematic composition, professional lighting, "
-        f"{style_suffix}, vertical 9:16, no text, no watermark"
+        f"{scene['visual_prompt']}, photorealistic, realistic photography, shot on camera, "
+        f"cinematic composition, professional lighting, {style_suffix}, "
+        f"vertical 9:16, no text, no watermark, not a painting, not illustration, not digital art"
     )
 
     ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
