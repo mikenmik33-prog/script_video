@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import editor, scene_generator, script_generator, subtitles, voice_generator
+from backend import editor, scene_generator, script_generator, subtitles, trends, voice_generator
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
@@ -41,6 +41,11 @@ app.add_middleware(
 # Проста in-memory "база" задач. Без бази даних - достатньо для локального
 # прототипу; стан живе, поки працює процес сервера.
 jobs: dict = {}
+
+
+@app.on_event("startup")
+def _start_trending_ideas_refresh():
+    trends.start_background_refresh()
 
 
 class GenerateRequest(BaseModel):
@@ -159,6 +164,20 @@ def run_pipeline(job_id: str):
     except Exception as exc:  # локальний прототип: показуємо причину користувачу в UI
         job["status"] = "error"
         job["error"] = str(exc)
+
+
+@app.get("/api/trending-ideas")
+def get_trending_ideas():
+    """Список ідей теми з найпопулярніших відео YouTube (від найбільш до
+    найменш популярного за переглядами). Оновлюється у фоні автоматично."""
+    return trends.get_ideas()
+
+
+@app.post("/api/trending-ideas/refresh")
+def refresh_trending_ideas():
+    """Примусово оновлює список ідей зараз, не чекаючи фонового розкладу."""
+    updated = trends.refresh_ideas()
+    return {"updated": updated, **trends.get_ideas()}
 
 
 @app.post("/api/generate")

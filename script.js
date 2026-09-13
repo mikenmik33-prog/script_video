@@ -12,12 +12,17 @@ const STAGE_ICONS = {
 const POLL_INTERVAL_MS = 1000;
 
 const form = document.getElementById("generate-form");
+const topicInput = document.getElementById("topic");
 const submitButton = document.getElementById("submit-button");
 const formError = document.getElementById("form-error");
 const stageListItems = document.querySelectorAll("#stage-list li");
 const progressBarFill = document.getElementById("progress-bar-fill");
 const progressPercent = document.getElementById("progress-percent");
 const resultPanel = document.getElementById("result-panel");
+
+const ideasList = document.getElementById("ideas-list");
+const ideasUpdated = document.getElementById("ideas-updated");
+const refreshIdeasButton = document.getElementById("refresh-ideas-button");
 
 let pollTimerId = null;
 
@@ -188,3 +193,102 @@ async function handleFormSubmit(event) {
 }
 
 form.addEventListener("submit", handleFormSubmit);
+
+// --- Популярні ідеї (з YouTube) ---
+
+const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
+
+function formatViews(views) {
+  if (views === null || views === undefined) return null;
+  if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}М переглядів`;
+  if (views >= 1_000) return `${(views / 1_000).toFixed(1)}тис. переглядів`;
+  return `${views} переглядів`;
+}
+
+function formatUpdatedAt(unixSeconds) {
+  if (!unixSeconds) return "";
+  const date = new Date(unixSeconds * 1000);
+  return `Оновлено о ${date.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function renderIdeas(data) {
+  const ideas = data.ideas || [];
+  ideasUpdated.textContent = data.source === "youtube"
+    ? formatUpdatedAt(data.last_updated)
+    : "Демо-ідеї (щоб бачити реальні тренди YouTube, додайте YOUTUBE_API_KEY)";
+
+  if (ideas.length === 0) {
+    ideasList.innerHTML = '<p class="ideas-loading">Ідей поки немає.</p>';
+    return;
+  }
+
+  ideasList.innerHTML = "";
+  ideas.forEach((idea, index) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "idea-card";
+
+    const rank = document.createElement("div");
+    rank.className = "idea-rank";
+    rank.textContent = `#${index + 1}`;
+    card.appendChild(rank);
+
+    if (idea.thumbnail) {
+      const img = document.createElement("img");
+      img.className = "idea-thumbnail";
+      img.src = idea.thumbnail;
+      img.alt = "";
+      card.appendChild(img);
+    }
+
+    const title = document.createElement("div");
+    title.className = "idea-title";
+    title.textContent = idea.title;
+    card.appendChild(title);
+
+    const views = formatViews(idea.views);
+    if (views) {
+      const viewsEl = document.createElement("div");
+      viewsEl.className = "idea-views";
+      viewsEl.textContent = views;
+      card.appendChild(viewsEl);
+    }
+
+    card.addEventListener("click", () => {
+      topicInput.value = idea.title;
+      topicInput.focus();
+    });
+
+    ideasList.appendChild(card);
+  });
+}
+
+async function loadTrendingIdeas() {
+  try {
+    const response = await fetch("/api/trending-ideas");
+    if (!response.ok) return;
+    const data = await response.json();
+    renderIdeas(data);
+  } catch (err) {
+    // тихо ігноруємо - це не критична для роботи форми функція
+  }
+}
+
+async function handleRefreshIdeas() {
+  refreshIdeasButton.disabled = true;
+  try {
+    const response = await fetch("/api/trending-ideas/refresh", { method: "POST" });
+    if (response.ok) {
+      renderIdeas(await response.json());
+    }
+  } catch (err) {
+    // тихо ігноруємо
+  } finally {
+    refreshIdeasButton.disabled = false;
+  }
+}
+
+refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
+
+loadTrendingIdeas();
+setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);
