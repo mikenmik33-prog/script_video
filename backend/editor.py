@@ -16,8 +16,19 @@ from backend import subtitles as subtitles_module
 
 WIDTH, HEIGHT = 1080, 1920
 FPS = 24  # 24 замість 30 - помітно менше кадрів для кодування (легше для CPU)
-TRANSITION_DURATION = 0.35
 MUSIC_VOLUME = 0.18
+
+# Переходи між сценами - справжній xfade (кадри двох сцен перетікають
+# один в інший), а не старе "згасання в чорне і назад", яке давало
+# чорний спалах між кожною парою сцен
+XFADE_TRANSITIONS = {
+    "fade": "fade",
+    "slide": "slideleft",
+    "cut": "fade",  # "різкий" перехід реалізуємо як дуже короткий fade -
+                    # візуально як різкий різ, але без гілкування ffmpeg-графа
+}
+DEFAULT_TRANSITION_SECONDS = 0.45
+CUT_TRANSITION_SECONDS = 0.08
 
 
 def _run_ffmpeg(args: list):
@@ -26,13 +37,16 @@ def _run_ffmpeg(args: list):
         raise RuntimeError(f"FFmpeg помилка (монтаж): {result.stderr.decode(errors='ignore')}")
 
 
-def _create_scene_clip(frames: list, transition: str, output_path: str, work_dir: str, clip_name: str):
+def _create_scene_clip(frames: list, output_path: str, work_dir: str, clip_name: str):
     """Перетворює послідовність кадрів сцени (зображення + тривалість показу
     кожного - для динамічного виділення слів у субтитрах) на один
     відеокліп через FFmpeg concat demuxer (один виклик FFmpeg, навіть
-    якщо кадрів багато - важливо для слабких CPU безкоштовних хостингів)."""
-    total_duration = sum(d for _, d in frames)
+    якщо кадрів багато - важливо для слабких CPU безкоштовних хостингів).
 
+    Кліп навмисно БЕЗ переходів усередині - перехід між сценами тепер
+    робиться окремо, через xfade у _build_transition_chain(), інакше
+    старе рішення "згасання в чорне на початку/кінці кожного кліпу"
+    давало помітний чорний спалах між сусідніми сценами."""
     list_path = os.path.join(work_dir, f"{clip_name}_frames.txt")
     with open(list_path, "w", encoding="utf-8") as f:
         for frame_path, frame_duration in frames:
@@ -49,13 +63,6 @@ def _create_scene_clip(frames: list, transition: str, output_path: str, work_dir
         f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
     ]
 
-    # "cut" - різкий перехід без ефекту, інакше - просте плавне
-    # затемнення на початку/кінці кліпу (легкий у реалізації аналог переходу)
-    if transition != "cut":
-        fade_out_start = max(total_duration - TRANSITION_DURATION, 0)
-        filters.append(f"fade=t=in:st=0:d={TRANSITION_DURATION}")
-        filters.append(f"fade=t=out:st={fade_out_start}:d={TRANSITION_DURATION}")
-
     _run_ffmpeg([
         "-f", "concat",
         "-safe", "0",
@@ -68,6 +75,81 @@ def _create_scene_clip(frames: list, transition: str, output_path: str, work_dir
         "-preset", "ultrafast",
         output_path,
     ])
+
+
+def _build_transition_chain(clip_paths: list, clip_durations: list, transitions: list, output_path: str):
+    """Склеює кліпи сцен в один відеоряд із плавними переходами (xfade) -
+    кадри двох сусідніх сцен буквально перетікають один в інший
+    (crossfade чи slide), замість різкого монтажного склеювання.
+
+    transitions[i] - тип переходу МІЖ сценою i та сценою i+1 (тип
+    останньої сцени не використовується - переходити вже нікуди).
+
+    Повертає РЕАЛЬНУ тривалість отриманого відео - кожен xfade-перехід
+    "з'їдає" частину тривалості (сцени накладаються одна на одну), тому
+    підсумкове відео коротше за просту суму scene["duration"]. Виклик
+    має компенсувати цю різницю (див. build_video), інакше в кінці
+    зникне кілька секунд озвучки/музики."""
+    if len(clip_paths) == 1:
+        # нема з чим переходити - просто перекодовуємо єдиний кліп
+        _run_ffmpeg([
+            "-i", clip_paths[0],
+            "-r", str(FPS), "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+            output_path,
+        ])
+        return clip_durations[0]
+
+    args = []
+    for path in clip_paths:
+        args += ["-i", path]
+
+    filter_parts = []
+    prev_label = "0:v"
+    running_duration = clip_durations[0]
+
+    for i in range(1, len(clip_paths)):
+        transition_key = transitions[i - 1] if i - 1 < len(transitions) else "fade"
+        xfade_name = XFADE_TRANSITIONS.get(transition_key, "fade")
+        base_duration = CUT_TRANSITION_SECONDS if transition_key == "cut" else DEFAULT_TRANSITION_SECONDS
+        # перехід не може бути довшим за жоден із двох кліпів, що зʼєднуються
+        duration = max(min(base_duration, clip_durations[i - 1] * 0.4, clip_durations[i] * 0.4), 0.05)
+
+        offset = max(running_duration - duration, 0)
+        label = f"v{i}"
+        filter_parts.append(
+            f"[{prev_label}][{i}:v]xfade=transition={xfade_name}:duration={duration:.3f}:offset={offset:.3f}[{label}]"
+        )
+        running_duration = running_duration + clip_durations[i] - duration
+        prev_label = label
+
+    args += [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", f"[{prev_label}]",
+        "-r", str(FPS),
+        "-pix_fmt", "yuv420p",
+        "-preset", "ultrafast",
+        output_path,
+    ]
+    _run_ffmpeg(args)
+    return running_duration
+
+
+def _pad_video_duration(video_path: str, deficit_seconds: float, work_dir: str) -> str:
+    """Додає deficit_seconds в кінець відео, "заморожуючи" останній кадр -
+    компенсує тривалість, яку "з'їли" xfade-переходи, щоб відео не
+    виявилось коротшим за озвучку/музику (інакше кінець аудіо обрізало б).
+    (tpad-у stop_duration - це саме тривалість ДОПОВНЕННЯ, а не цільова
+    підсумкова тривалість)."""
+    padded_path = os.path.join(work_dir, "video_only_padded.mp4")
+    _run_ffmpeg([
+        "-i", video_path,
+        "-vf", f"tpad=stop_mode=clone:stop_duration={deficit_seconds:.3f}",
+        "-r", str(FPS),
+        "-pix_fmt", "yuv420p",
+        "-preset", "ultrafast",
+        padded_path,
+    ])
+    return padded_path
 
 
 def _concat_media(file_paths: list, list_file_path: str, output_path: str, extra_args=None):
@@ -158,6 +240,8 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
             progress_callback(completed_steps / total_steps)
 
     clip_paths = []
+    clip_durations = []
+    transitions = []
     for scene, image_path in zip(scenes, scene_images):
         clip_name = f"scene_{scene['scene']:02d}"
         frames = subtitles_module.generate_word_highlight_frames(
@@ -165,12 +249,22 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
         )
 
         clip_path = os.path.join(work_dir, f"{clip_name}.mp4")
-        _create_scene_clip(frames, scene["transition"], clip_path, work_dir, clip_name)
+        _create_scene_clip(frames, clip_path, work_dir, clip_name)
         clip_paths.append(clip_path)
+        clip_durations.append(sum(d for _, d in frames))
+        transitions.append(scene["transition"])
         _report_progress()
 
     video_only_path = os.path.join(work_dir, "video_only.mp4")
-    _concat_media(clip_paths, os.path.join(work_dir, "clips.txt"), video_only_path)
+    video_duration = _build_transition_chain(clip_paths, clip_durations, transitions, video_only_path)
+
+    # xfade-переходи "з'їдають" частину тривалості (сцени накладаються
+    # одна на одну) - доповнюємо відео до початкової сумарної тривалості,
+    # інакше при фінальному mux-і обріже кінець озвучки/музики
+    total_scenes_duration = sum(clip_durations)
+    deficit = total_scenes_duration - video_duration
+    if deficit > 0.02:
+        video_only_path = _pad_video_duration(video_only_path, deficit, work_dir)
     _report_progress()
 
     voice_track_path = os.path.join(work_dir, "voice_track.wav")
@@ -182,8 +276,7 @@ def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: s
     )
     _report_progress()
 
-    total_duration = sum(scene["duration"] for scene in scenes)
-    music_track_path = _build_music_track(total_duration, music_dir, work_dir)
+    music_track_path = _build_music_track(total_scenes_duration, music_dir, work_dir)
     _report_progress()
 
     mixed_audio_path = os.path.join(work_dir, "mixed_audio.wav")
