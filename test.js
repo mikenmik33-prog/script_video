@@ -20,7 +20,7 @@ function clearError(el) {
 function createSceneCard(scene, style) {
   const card = document.createElement("div");
   card.className = "test-scene-card";
-  let lastImageUrl = null;
+  let lastImageData = null;
 
   const header = document.createElement("h3");
   header.textContent = `Сцена ${scene.scene} (${scene.duration}с, перехід: ${scene.transition})`;
@@ -101,7 +101,11 @@ function createSceneCard(scene, style) {
         throw new Error(body.detail || "Не вдалося згенерувати картинку");
       }
       const data = await response.json();
-      lastImageUrl = data.image_url;
+      // зберігаємо байти картинки в пам'яті браузера (не лише URL) -
+      // якщо Render "засне" й перезапустить контейнер до натискання
+      // "Згенерувати відео", файл на диску сервера може зникнути, а
+      // ці дані нікуди не дінуться
+      lastImageData = data.image_data;
       previewImg.src = `${data.image_url}?t=${Date.now()}`;
       previewImg.hidden = false;
       statusText.textContent = "Готово.";
@@ -113,7 +117,7 @@ function createSceneCard(scene, style) {
   });
 
   videoButton.addEventListener("click", async () => {
-    if (!lastImageUrl) {
+    if (!lastImageData) {
       statusText.textContent = "Спочатку згенеруйте картинку кнопкою вище.";
       return;
     }
@@ -128,7 +132,7 @@ function createSceneCard(scene, style) {
       const response = await fetch("/api/test/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_url: lastImageUrl, visual_prompt: promptInput.value }),
+        body: JSON.stringify({ image_data: lastImageData, visual_prompt: promptInput.value }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));

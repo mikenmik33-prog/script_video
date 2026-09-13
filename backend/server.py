@@ -9,6 +9,7 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 Потім відкрити http://127.0.0.1:8000 у браузері.
 """
 
+import base64
 import json
 import logging
 import os
@@ -319,12 +320,25 @@ def test_generate_image(request: TestImageRequest):
     # мінімального словника з тим самим промтом, який редагує користувач
     fake_scene = {"scene": 0, "visual_prompt": request.visual_prompt}
     scene_generator.generate_scene_image(fake_scene, request.style, path)
-    return {"image_url": f"/output/_test/images/{filename}"}
+
+    # base64 повертаємо одразу у відповіді, щоб фронтенд зберіг байти
+    # картинки в себе в пам'яті - Render безкоштовного тарифу "засинає"
+    # при бездіяльності й при пробудженні перезапускає контейнер із
+    # чистим ефемерним диском, тому файл за посиланням image_url може
+    # зникнути ще до того, як користувач натисне "Згенерувати відео"
+    with open(path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    return {
+        "image_url": f"/output/_test/images/{filename}",
+        "image_data": f"data:image/png;base64,{image_b64}",
+    }
 
 
 class TestVideoRequest(BaseModel):
-    image_url: str
     visual_prompt: str
+    image_url: str | None = None
+    image_data: str | None = None
 
 
 def _run_test_video_job(job_id: str, image_path: str, visual_prompt: str):
@@ -347,10 +361,23 @@ def test_generate_video(request: TestVideoRequest, background_tasks: BackgroundT
     if not ai.has_video_api():
         raise HTTPException(400, "FAL_API_KEY не налаштований на сервері")
 
-    relative_path = request.image_url.removeprefix("/output/")
-    image_path = os.path.join(OUTPUT_DIR, relative_path)
-    if not os.path.exists(image_path):
-        raise HTTPException(404, "Зображення для цієї сцени не знайдено")
+    images_dir = os.path.join(TEST_OUTPUT_DIR, "images")
+    os.makedirs(images_dir, exist_ok=True)
+
+    if request.image_data:
+        # надійний шлях - байти картинки прийшли прямо від фронтенду,
+        # не залежить від того, чи вижив файл на диску сервера
+        header, _, encoded = request.image_data.partition(",")
+        image_path = os.path.join(images_dir, f"{uuid.uuid4().hex[:10]}.png")
+        with open(image_path, "wb") as f:
+            f.write(base64.b64decode(encoded))
+    elif request.image_url:
+        relative_path = request.image_url.removeprefix("/output/")
+        image_path = os.path.join(OUTPUT_DIR, relative_path)
+        if not os.path.exists(image_path):
+            raise HTTPException(404, "Зображення для цієї сцени не знайдено")
+    else:
+        raise HTTPException(400, "Не передано зображення сцени")
 
     job_id = uuid.uuid4().hex[:10]
     test_video_jobs[job_id] = {"status": "processing", "video_url": None, "error": None}
