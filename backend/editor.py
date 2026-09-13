@@ -1,0 +1,162 @@
+"""
+Модуль монтажу відео через FFmpeg.
+
+Збирає з окремих сцен (зображення з випаленими субтитрами + озвучка)
+одне вертикальне відео 1080x1920, додає фонову музику і експортує
+готовий MP4.
+
+Кожен крок - окрема невелика функція навколо одного виклику FFmpeg,
+щоб конвеєр було легко читати і змінювати.
+"""
+
+import os
+import subprocess
+
+from backend import subtitles as subtitles_module
+
+WIDTH, HEIGHT = 1080, 1920
+FPS = 30
+TRANSITION_DURATION = 0.35
+MUSIC_VOLUME = 0.18
+
+
+def _run_ffmpeg(args: list):
+    result = subprocess.run(["ffmpeg", "-y", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg помилка (монтаж): {result.stderr.decode(errors='ignore')}")
+
+
+def _create_scene_clip(image_path: str, duration: float, transition: str, output_path: str):
+    """Перетворює одне статичне зображення сцени на відеокліп потрібної тривалості."""
+    filters = [
+        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease",
+        f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
+    ]
+
+    # "cut" - різкий перехід без ефекту, інакше - просте плавне
+    # затемнення на початку/кінці кліпу (легкий у реалізації аналог переходу)
+    if transition != "cut":
+        fade_out_start = max(duration - TRANSITION_DURATION, 0)
+        filters.append(f"fade=t=in:st=0:d={TRANSITION_DURATION}")
+        filters.append(f"fade=t=out:st={fade_out_start}:d={TRANSITION_DURATION}")
+
+    _run_ffmpeg([
+        "-loop", "1",
+        "-t", str(duration),
+        "-i", image_path,
+        "-vf", ",".join(filters),
+        "-r", str(FPS),
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+
+
+def _concat_media(file_paths: list, list_file_path: str, output_path: str, extra_args=None):
+    """Склеює список файлів (відео або аудіо) через concat demuxer FFmpeg."""
+    with open(list_file_path, "w", encoding="utf-8") as f:
+        for path in file_paths:
+            absolute = os.path.abspath(path).replace("'", "'\\''")
+            f.write(f"file '{absolute}'\n")
+
+    args = ["-f", "concat", "-safe", "0", "-i", list_file_path]
+    args += extra_args if extra_args is not None else ["-c", "copy"]
+    args += [output_path]
+    _run_ffmpeg(args)
+
+
+def _pick_music_file(music_dir: str):
+    if not os.path.isdir(music_dir):
+        return None
+    for name in sorted(os.listdir(music_dir)):
+        if name.lower().endswith((".mp3", ".wav", ".m4a", ".aac")):
+            return os.path.join(music_dir, name)
+    return None
+
+
+def _build_music_track(duration: float, music_dir: str, work_dir: str) -> str:
+    """Готує доріжку фонової музики: реальний трек з assets/music, якщо він
+    є, або тиху тестову доріжку - якщо ні."""
+    music_path = _pick_music_file(music_dir)
+    output_path = os.path.join(work_dir, "music.wav")
+
+    if music_path:
+        _run_ffmpeg([
+            "-stream_loop", "-1",
+            "-i", music_path,
+            "-t", str(duration),
+            "-af", f"volume={MUSIC_VOLUME}",
+            output_path,
+        ])
+    else:
+        _run_ffmpeg([
+            "-f", "lavfi",
+            "-i", f"sine=frequency=220:duration={duration}",
+            "-af", f"volume={MUSIC_VOLUME}",
+            output_path,
+        ])
+    return output_path
+
+
+def _mix_audio(voice_path: str, music_path: str, output_path: str):
+    _run_ffmpeg([
+        "-i", voice_path,
+        "-i", music_path,
+        "-filter_complex",
+        "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+        "-map", "[aout]",
+        output_path,
+    ])
+
+
+def build_video(scenes: list, scene_images: list, voice_files: list, work_dir: str, music_dir: str, output_path: str) -> str:
+    """
+    Головна функція монтажу.
+
+    scenes       - сцени сценарію (тривалість, субтитр, тип переходу)
+    scene_images - шляхи до згенерованих зображень сцен (той самий порядок)
+    voice_files  - шляхи до аудіофайлів озвучки сцен (той самий порядок)
+    work_dir     - тимчасова робоча директорія для проміжних файлів
+    music_dir    - директорія з фоновою музикою (assets/music)
+    output_path  - шлях до фінального MP4
+
+    Повертає шлях до готового файлу (== output_path).
+    """
+    os.makedirs(work_dir, exist_ok=True)
+
+    clip_paths = []
+    for scene, image_path in zip(scenes, scene_images):
+        subtitled_path = os.path.join(work_dir, f"subtitled_{scene['scene']:02d}.png")
+        subtitles_module.burn_subtitle(image_path, scene["subtitle"], subtitled_path)
+
+        clip_path = os.path.join(work_dir, f"clip_{scene['scene']:02d}.mp4")
+        _create_scene_clip(subtitled_path, scene["duration"], scene["transition"], clip_path)
+        clip_paths.append(clip_path)
+
+    video_only_path = os.path.join(work_dir, "video_only.mp4")
+    _concat_media(clip_paths, os.path.join(work_dir, "clips.txt"), video_only_path)
+
+    voice_track_path = os.path.join(work_dir, "voice_track.wav")
+    _concat_media(
+        voice_files,
+        os.path.join(work_dir, "voices.txt"),
+        voice_track_path,
+        extra_args=["-ar", "44100", "-ac", "2"],
+    )
+
+    total_duration = sum(scene["duration"] for scene in scenes)
+    music_track_path = _build_music_track(total_duration, music_dir, work_dir)
+
+    mixed_audio_path = os.path.join(work_dir, "mixed_audio.wav")
+    _mix_audio(voice_track_path, music_track_path, mixed_audio_path)
+
+    _run_ffmpeg([
+        "-i", video_only_path,
+        "-i", mixed_audio_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-shortest",
+        "-movflags", "+faststart",
+        output_path,
+    ])
+
+    return output_path

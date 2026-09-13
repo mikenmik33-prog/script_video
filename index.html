@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Video Generator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>AI Video Generator</h1>
+    <p class="subtitle">Ідея → сценарій → сцени → візуал → озвучка → субтитри → монтаж → готовий MP4</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel form-panel">
+      <h2>Нове відео</h2>
+      <form id="generate-form">
+        <label for="topic">Тема відео</label>
+        <input
+          type="text"
+          id="topic"
+          name="topic"
+          placeholder="Наприклад: Що буде, якщо Земля перестане обертатися?"
+          required
+        />
+
+        <label>Тривалість</label>
+        <div class="radio-row">
+          <label class="radio-option">
+            <input type="radio" name="duration" value="30" checked />
+            30 секунд
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="duration" value="60" />
+            60 секунд
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="duration" value="90" />
+            90 секунд
+          </label>
+        </div>
+
+        <label for="style">Стиль відео</label>
+        <select id="style" name="style">
+          <option value="cinematic">Кінематографічний</option>
+          <option value="minimal">Мінімалістичний</option>
+          <option value="energetic">Енергійний</option>
+          <option value="news">Новинний</option>
+        </select>
+
+        <label for="language">Мова</label>
+        <select id="language" name="language">
+          <option value="uk">Українська</option>
+          <option value="en">English</option>
+        </select>
+
+        <button type="submit" id="submit-button">Створити відео</button>
+      </form>
+
+      <p id="form-error" class="error-message" hidden></p>
+    </section>
+
+    <section class="panel progress-panel">
+      <h2>Прогрес генерації</h2>
+
+      <ol id="stage-list" class="stage-list">
+        <li data-stage="script"><span class="stage-icon">○</span> Генерація сценарію</li>
+        <li data-stage="scenes"><span class="stage-icon">○</span> Розбиття на сцени</li>
+        <li data-stage="visual"><span class="stage-icon">○</span> Генерація візуалу</li>
+        <li data-stage="voice"><span class="stage-icon">○</span> Озвучка</li>
+        <li data-stage="subtitles"><span class="stage-icon">○</span> Субтитри</li>
+        <li data-stage="editing"><span class="stage-icon">○</span> Монтаж</li>
+        <li data-stage="export"><span class="stage-icon">○</span> Експорт</li>
+      </ol>
+
+      <div class="progress-bar-track">
+        <div id="progress-bar-fill" class="progress-bar-fill"></div>
+      </div>
+      <p id="progress-percent" class="progress-percent">0%</p>
+    </section>
+
+    <section class="panel result-panel" id="result-panel" hidden>
+      <h2>Готове відео</h2>
+      <video id="result-video" controls></video>
+
+      <h3>Сценарій</h3>
+      <p id="result-full-text" class="full-text"></p>
+
+      <h3>Сцени</h3>
+      <ol id="result-scenes" class="scene-list"></ol>
+
+      <h3>Файли</h3>
+      <ul id="result-files" class="file-list"></ul>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

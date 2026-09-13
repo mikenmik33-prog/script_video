@@ -1,0 +1,229 @@
+:root {
+  --bg: #0f1220;
+  --panel-bg: #171b2e;
+  --panel-border: #2a3050;
+  --text: #eef0fb;
+  --text-muted: #9aa1c4;
+  --accent: #6f6bff;
+  --accent-hover: #8b87ff;
+  --success: #37c98a;
+  --active: #ffb84d;
+  --error: #ff6b6b;
+  --input-bg: #10132a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1024px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.topbar {
+  padding: 28px 40px 20px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.topbar h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 380px 380px 1fr;
+  gap: 24px;
+  padding: 32px 40px;
+  align-items: start;
+}
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+
+input[type="text"],
+select {
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+input[type="text"]:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+}
+
+.radio-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 14px;
+  margin-top: 0;
+}
+
+button#submit-button {
+  margin-top: 20px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+button#submit-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button#submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-message {
+  color: var(--error);
+  font-size: 13px;
+  margin-top: 14px;
+}
+
+.stage-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stage-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.stage-list li.done {
+  color: var(--success);
+}
+
+.stage-list li.active {
+  color: var(--active);
+}
+
+.stage-list li.error {
+  color: var(--error);
+}
+
+.stage-icon {
+  width: 20px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.progress-bar-track {
+  background: var(--input-bg);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.progress-percent {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.result-panel video {
+  width: 100%;
+  max-width: 320px;
+  border-radius: 10px;
+  background: black;
+  display: block;
+  margin-bottom: 16px;
+}
+
+.full-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.scene-list {
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-list a {
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.file-list a:hover {
+  text-decoration: underline;
+}
