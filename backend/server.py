@@ -12,7 +12,6 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 import json
 import logging
 import os
-import shutil
 import threading
 import time
 import uuid
@@ -46,11 +45,6 @@ TEST_FILE_MAX_AGE_SECONDS = 2 * 60 * 60  # 2 години
 TEST_CLEANUP_INTERVAL_SECONDS = 30 * 60  # перевіряти раз на 30 хв
 
 
-def _clear_test_output_dir():
-    """Повністю очищує тестові файли - викликається один раз при старті."""
-    shutil.rmtree(TEST_OUTPUT_DIR, ignore_errors=True)
-
-
 def _delete_old_test_files():
     """Видаляє тестові файли, старші за TEST_FILE_MAX_AGE_SECONDS."""
     if not os.path.isdir(TEST_OUTPUT_DIR):
@@ -73,7 +67,12 @@ def _test_cleanup_loop():
 
 
 def _start_test_cleanup():
-    _clear_test_output_dir()
+    # На старті видаляємо лише СТАРІ файли (з минулих сесій, давніші за
+    # TEST_FILE_MAX_AGE_SECONDS) - не всю папку одразу. Раніше тут був
+    # повний shutil.rmtree() при кожному запуску, через що деплой чи
+    # рестарт Render видаляв щойно згенеровані картинки посеред роботи
+    # користувача на /test.
+    _delete_old_test_files()
     thread = threading.Thread(target=_test_cleanup_loop, daemon=True)
     thread.start()
 
