@@ -26,13 +26,25 @@ function createSceneCard(scene, style) {
   header.textContent = `Сцена ${scene.scene} (${scene.duration}с, перехід: ${scene.transition})`;
   card.appendChild(header);
 
-  const voiceLabel = document.createElement("p");
-  voiceLabel.innerHTML = `<strong>Озвучка:</strong> ${scene.voice_text}`;
-  card.appendChild(voiceLabel);
+  const voiceFieldLabel = document.createElement("label");
+  voiceFieldLabel.textContent = "Озвучка (можна редагувати):";
+  card.appendChild(voiceFieldLabel);
 
-  const subtitleLabel = document.createElement("p");
-  subtitleLabel.innerHTML = `<strong>Субтитр:</strong> ${scene.subtitle}`;
-  card.appendChild(subtitleLabel);
+  const voiceInput = document.createElement("textarea");
+  voiceInput.className = "test-prompt-input";
+  voiceInput.value = scene.voice_text;
+  voiceInput.rows = 2;
+  card.appendChild(voiceInput);
+
+  const subtitleFieldLabel = document.createElement("label");
+  subtitleFieldLabel.textContent = "Субтитр (можна редагувати):";
+  card.appendChild(subtitleFieldLabel);
+
+  const subtitleInput = document.createElement("textarea");
+  subtitleInput.className = "test-prompt-input";
+  subtitleInput.value = scene.subtitle;
+  subtitleInput.rows = 2;
+  card.appendChild(subtitleInput);
 
   const promptLabel = document.createElement("label");
   promptLabel.textContent = "Візуальний промт (можна редагувати):";
