@@ -78,15 +78,21 @@ def _build_lines(topic: str, template: dict, scene_count: int) -> list:
 
 
 def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
-    """Головна функція генерації сценарію та розбиття його на сцени."""
-    ai_result = ai.generate_script_with_ai(topic, duration, language)
-    if ai_result is not None:
-        return ai_result
+    """Головна функція генерації сценарію та розбиття його на сцени.
 
-    template = _get_template(language)
+    Спочатку пробує реальний AI (Gemini, через ai.py). Якщо ключа немає
+    або запит не вдався, використовує локальний DEMO-шаблон - обидва
+    варіанти дають однакову кількість сцен і однаковий формат виводу.
+    """
     scene_count = max(3, round(duration / SCENE_DURATION))
     durations = _split_duration(duration, scene_count)
-    lines = _build_lines(topic, template, scene_count)
+
+    ai_lines = ai.generate_script_lines_with_ai(topic, scene_count, language)
+    if ai_lines is not None:
+        lines = ai_lines
+    else:
+        template = _get_template(language)
+        lines = _build_lines(topic, template, scene_count)
 
     scenes = []
     for index, (text, scene_duration) in enumerate(zip(lines, durations), start=1):
