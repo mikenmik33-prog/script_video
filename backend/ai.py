@@ -74,7 +74,8 @@ GEMINI_TIMEOUT_SECONDS = 30
 # (queue-based API: POST у чергу -> опитування статусу -> результат)
 FAL_QUEUE_BASE = "https://queue.fal.run"
 FAL_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
-FAL_POLL_INTERVAL_SECONDS = 5
+# скільки максимум чекати результату - рахує викликач (server.py) за
+# часом від моменту постановки в чергу, порівнюючи із submitted_at
 FAL_MAX_WAIT_SECONDS = 180
 
 IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
@@ -294,29 +295,54 @@ def _guess_image_mime(image_path: str) -> str:
     return "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
 
 
-def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
-    """Оживляє вже згенероване зображення сцени коротким відеокліпом
-    (image-to-video) через fal.ai (модель MiniMax Hailuo) - платний
-    сервіс з оплатою за фактичне використання (без підписки), тому
-    викликається вибірково, не для кожної сцени (див. scene_generator.py).
+def _fal_auth_headers() -> dict:
+    return {"Authorization": f"Key {FAL_API_KEY}"}
+
+
+def _log_fal_http_error(exc: "urllib.error.HTTPError", context: str) -> None:
+    # тіло відповіді зазвичай містить точний код/причину помилки
+    # (наприклад брак балансу, невірний формат запиту тощо) - без
+    # цього в логах видно лише голий HTTP-код, замало для діагностики
+    try:
+        error_body = exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        error_body = "<не вдалось прочитати тіло відповіді>"
+    logger.warning(
+        "fal.ai (%s): HTTP %s: %s, тіло відповіді: %s",
+        context, exc.code, exc.reason, error_body,
+    )
+
+
+def submit_video_job(image_path: str, prompt: str):
+    """Ставить у чергу fal.ai (модель MiniMax Hailuo) запит на
+    оживлення зображення коротким відеокліпом (image-to-video) -
+    платний сервіс з оплатою за фактичне використання, викликається
+    вибірково, не для кожної сцени (див. scene_generator.py).
 
     Зображення передається як base64 data URI прямо в тілі запиту, щоб
-    не залежати від того, чи доступне воно за публічним URL (черга
-    fal.ai приймає і data URI, і звичайний URL).
+    не залежати від того, чи доступне воно за публічним URL.
 
     Модель видає 768p, 25fps, БЕЗ звукової доріжки (нам це підходить -
-    озвучку й музику ми й так додаємо окремо через ffmpeg, платити за
-    вбудований звук іншої, дорожчої моделі сенсу нема). Тривалість
+    озвучку й музику ми й так додаємо окремо через ffmpeg). Тривалість
     підтримується лише фіксована - 6 або 10 секунд (не довільна) -
     беремо 6с як дешевший варіант ($0.28 проти $0.56 за кліп).
 
-    Повертає шлях до збереженого mp4, або None - якщо ключа немає чи
-    щось не вдалось (тоді сцена лишається статичною картинкою).
+    Повертає {"status_url", "response_url"} для подальшого опитування
+    через check_video_job(), або None - якщо ключа немає чи запит на
+    постановку в чергу не вдався.
+
+    Це лише миттєва постановка в чергу (один швидкий HTTP-запит) - сама
+    генерація займає хвилини, тому очікування результату винесене в
+    окрему функцію (check_video_job), яку викликач опитує самостійно
+    (наприклад, у відповідь на періодичні запити від браузера), а не
+    один довгий блокуючий цикл на сервері - на слабкому CPU (Render
+    free-тариф) багатохвилинний цикл з time.sleep у фоновому потоці
+    підвищував ризик примусового рестарту процесу, через що і job, і
+    вже сплачений результат генерації губились безповоротно.
     """
     if not FAL_API_KEY:
         return None
 
-    headers_auth = {"Authorization": f"Key {FAL_API_KEY}"}
     submit_url = f"{FAL_QUEUE_BASE}/{FAL_MODEL}"
 
     try:
@@ -333,56 +359,56 @@ def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
         submit_request = urllib.request.Request(
             submit_url,
             data=submit_payload,
-            headers={**headers_auth, "Content-Type": "application/json"},
+            headers={**_fal_auth_headers(), "Content-Type": "application/json"},
             method="POST",
         )
         with urllib.request.urlopen(submit_request, timeout=30) as response:
             submit_body = json.loads(response.read().decode("utf-8"))
 
-        status_url = submit_body["status_url"]
-        response_url = submit_body["response_url"]
-
-        elapsed = 0
-        while elapsed < FAL_MAX_WAIT_SECONDS:
-            time.sleep(FAL_POLL_INTERVAL_SECONDS)
-            elapsed += FAL_POLL_INTERVAL_SECONDS
-
-            status_request = urllib.request.Request(status_url, headers=headers_auth)
-            with urllib.request.urlopen(status_request, timeout=20) as response:
-                status_body = json.loads(response.read().decode("utf-8"))
-
-            status = status_body.get("status")
-            if status == "COMPLETED":
-                result_request = urllib.request.Request(response_url, headers=headers_auth)
-                with urllib.request.urlopen(result_request, timeout=20) as response:
-                    result_body = json.loads(response.read().decode("utf-8"))
-                video_url = result_body["video"]["url"]
-                with urllib.request.urlopen(video_url, timeout=60) as response:
-                    with open(output_path, "wb") as f:
-                        f.write(response.read())
-                return output_path
-            if status in ("ERROR", "CANCELED"):
-                logger.warning("fal.ai: генерація відео завершилась невдало (status=%s)", status)
-                return None
-
-        logger.warning("fal.ai: не дочекались результату за %s с", FAL_MAX_WAIT_SECONDS)
-        return None
+        return {
+            "status_url": submit_body["status_url"],
+            "response_url": submit_body["response_url"],
+        }
     except urllib.error.HTTPError as exc:
-        # тіло відповіді зазвичай містить точний код/причину помилки
-        # (наприклад брак балансу, невірний формат запиту тощо) - без
-        # цього в логах видно лише голий HTTP-код, замало для діагностики
-        try:
-            error_body = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            error_body = "<не вдалось прочитати тіло відповіді>"
-        logger.warning(
-            "fal.ai недоступний (HTTP %s: %s), тіло відповіді: %s, лишаємо статичну картинку",
-            exc.code, exc.reason, error_body,
-        )
+        _log_fal_http_error(exc, "постановка в чергу")
         return None
     except Exception as exc:
         logger.warning("fal.ai недоступний (%s), лишаємо статичну картинку", exc)
         return None
+
+
+def check_video_job(status_url: str, response_url: str, output_path: str) -> str:
+    """Одна швидка перевірка стану задачі в черзі fal.ai - без сну й
+    без циклу очікування (див. docstring submit_video_job для причини).
+
+    Повертає "processing", "done" (кліп уже збережено в output_path)
+    або "error".
+    """
+    try:
+        status_request = urllib.request.Request(status_url, headers=_fal_auth_headers())
+        with urllib.request.urlopen(status_request, timeout=20) as response:
+            status_body = json.loads(response.read().decode("utf-8"))
+
+        status = status_body.get("status")
+        if status == "COMPLETED":
+            result_request = urllib.request.Request(response_url, headers=_fal_auth_headers())
+            with urllib.request.urlopen(result_request, timeout=20) as response:
+                result_body = json.loads(response.read().decode("utf-8"))
+            video_url = result_body["video"]["url"]
+            with urllib.request.urlopen(video_url, timeout=60) as response:
+                with open(output_path, "wb") as f:
+                    f.write(response.read())
+            return "done"
+        if status in ("ERROR", "CANCELED"):
+            logger.warning("fal.ai: генерація відео завершилась невдало (status=%s)", status)
+            return "error"
+        return "processing"
+    except urllib.error.HTTPError as exc:
+        _log_fal_http_error(exc, "перевірка статусу")
+        return "error"
+    except Exception as exc:
+        logger.warning("fal.ai: помилка перевірки статусу (%s)", exc)
+        return "error"
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):

@@ -341,23 +341,8 @@ class TestVideoRequest(BaseModel):
     image_data: str | None = None
 
 
-def _run_test_video_job(job_id: str, image_path: str, visual_prompt: str):
-    job = test_video_jobs[job_id]
-    videos_dir = os.path.join(TEST_OUTPUT_DIR, "videos")
-    os.makedirs(videos_dir, exist_ok=True)
-    output_path = os.path.join(videos_dir, f"{job_id}.mp4")
-
-    result = ai.generate_video_clip_with_ai(image_path, visual_prompt, output_path)
-    if result is not None:
-        job["status"] = "done"
-        job["video_url"] = f"/output/_test/videos/{job_id}.mp4"
-    else:
-        job["status"] = "error"
-        job["error"] = "fal.ai не повернув результат - деталі причини дивіться в логах сервера"
-
-
 @app.post("/api/test/video")
-def test_generate_video(request: TestVideoRequest, background_tasks: BackgroundTasks):
+def test_generate_video(request: TestVideoRequest):
     if not ai.has_video_api():
         raise HTTPException(400, "FAL_API_KEY не налаштований на сервері")
 
@@ -379,9 +364,24 @@ def test_generate_video(request: TestVideoRequest, background_tasks: BackgroundT
     else:
         raise HTTPException(400, "Не передано зображення сцени")
 
+    # Лише миттєва постановка в чергу fal.ai (один швидкий HTTP-запит) -
+    # саму генерацію (хвилини) опитує клієнт через GET нижче, без
+    # довгого блокуючого циклу на сервері (див. docstring
+    # ai.submit_video_job - таке блокування раніше підвищувало ризик
+    # примусового рестарту процесу на слабкому CPU Render).
+    job = ai.submit_video_job(image_path, request.visual_prompt)
+    if job is None:
+        raise HTTPException(502, "fal.ai не прийняв запит - деталі в логах сервера")
+
     job_id = uuid.uuid4().hex[:10]
-    test_video_jobs[job_id] = {"status": "processing", "video_url": None, "error": None}
-    background_tasks.add_task(_run_test_video_job, job_id, image_path, request.visual_prompt)
+    test_video_jobs[job_id] = {
+        "status": "processing",
+        "video_url": None,
+        "error": None,
+        "status_url": job["status_url"],
+        "response_url": job["response_url"],
+        "submitted_at": time.time(),
+    }
     return {"job_id": job_id}
 
 
@@ -390,7 +390,25 @@ def get_test_video_status(job_id: str):
     job = test_video_jobs.get(job_id)
     if job is None:
         raise HTTPException(404, "Задачу не знайдено")
-    return job
+
+    if job["status"] == "processing":
+        if time.time() - job["submitted_at"] > ai.FAL_MAX_WAIT_SECONDS:
+            job["status"] = "error"
+            job["error"] = f"не дочекались результату за {ai.FAL_MAX_WAIT_SECONDS} с"
+        else:
+            videos_dir = os.path.join(TEST_OUTPUT_DIR, "videos")
+            os.makedirs(videos_dir, exist_ok=True)
+            output_path = os.path.join(videos_dir, f"{job_id}.mp4")
+
+            result = ai.check_video_job(job["status_url"], job["response_url"], output_path)
+            if result == "done":
+                job["status"] = "done"
+                job["video_url"] = f"/output/_test/videos/{job_id}.mp4"
+            elif result == "error":
+                job["status"] = "error"
+                job["error"] = "fal.ai не повернув результат - деталі причини дивіться в логах сервера"
+
+    return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
 
 # --- Роздача frontend-файлів (лежать у корені проєкту, не в backend/) ---
