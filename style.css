@@ -330,3 +330,100 @@ button#submit-button:disabled {
 .file-list a:hover {
   text-decoration: underline;
 }
+
+/* --- Тестова панель промтів (test.html) --- */
+
+.test-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 24px;
+  padding: 32px 40px;
+  align-items: start;
+}
+
+.test-scenes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.test-scene-card {
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.test-scene-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.test-scene-card p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0;
+}
+
+.test-prompt-input {
+  width: 100%;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  margin-top: 6px;
+}
+
+.test-buttons-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.test-buttons-row button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.test-buttons-row button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.test-buttons-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.test-buttons-row button.danger-button {
+  background: var(--error);
+}
+
+.test-buttons-row button.danger-button:hover:not(:disabled) {
+  background: #ff8a8a;
+}
+
+.test-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  min-height: 16px;
+}
+
+.test-preview-image,
+.test-preview-video {
+  display: block;
+  max-width: 260px;
+  border-radius: 8px;
+  margin-top: 10px;
+  background: black;
+}

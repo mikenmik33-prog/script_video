@@ -8,14 +8,11 @@
 дозволяє конвеєру працювати навіть повністю офлайн.
 """
 
-import logging
 import os
 
 from PIL import Image, ImageDraw, ImageFont
 
 from backend import ai
-
-logger = logging.getLogger(__name__)
 
 WIDTH, HEIGHT = 720, 1280  # 720p
 
@@ -132,20 +129,5 @@ def generate_all_scenes(scenes: list, style: str, output_dir: str, progress_call
         paths.append(path)
         if progress_callback is not None:
             progress_callback(i / len(scenes))
-
-    # ТИМЧАСОВИЙ діагностичний виклик: пробуємо оживити відео саме
-    # першої (hero) сцени через Kling AI - результат ще НЕ впливає на
-    # фінальне відео (лише зберігається поруч, у _kling_test.mp4), це
-    # окрема перевірка, чи сам виклик API взагалі працює, перш ніж
-    # вплітати його в монтаж.
-    if ai.has_kling_api() and scenes:
-        first_scene = scenes[0]
-        test_output = os.path.join(output_dir, "scene_01_kling_test.mp4")
-        logger.info("KLING TEST: пробуємо згенерувати відео для сцени 1...")
-        result = ai.generate_video_clip_with_ai(paths[0], first_scene["visual_prompt"], test_output)
-        if result is not None:
-            logger.info("KLING TEST: УСПІХ, відео збережено в %s", result)
-        else:
-            logger.warning("KLING TEST: НЕ ВДАЛОСЯ (див. попередження вище з причиною)")
 
     return paths

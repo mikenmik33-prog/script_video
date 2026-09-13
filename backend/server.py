@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import editor, scene_generator, script_generator, subtitles, trends, voice_generator
+from backend import ai, editor, scene_generator, script_generator, subtitles, trends, voice_generator
 
 # без цього logger.warning() у backend/*.py міг би тихо загубитись і не
 # потрапити в консоль/логи хостингу (Python не пише логи нікуди, поки
@@ -228,6 +228,99 @@ def get_result(job_id: str):
     }
 
 
+# --- Тестова панель: швидка ітерація коротких сценаріїв (до 15с) і
+# візуальних промтів, без повного циклу генерації відео/монтажу. ---
+
+TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
+TEST_MAX_DURATION = 15
+
+# Окрема in-memory "база" для тестових video-задач (Kling) - та сама
+# логіка, що й jobs, але навмисно окремий словник, щоб тестова панель
+# не змішувалась зі станом основного генератора відео.
+test_video_jobs: dict = {}
+
+
+class TestScriptRequest(BaseModel):
+    topic: str
+    duration: int = TEST_MAX_DURATION
+    language: str = "uk"
+
+
+@app.post("/api/test/script")
+def test_generate_script(request: TestScriptRequest):
+    if not request.topic or not request.topic.strip():
+        raise HTTPException(400, "Тема не може бути порожньою")
+    duration = max(5, min(request.duration, TEST_MAX_DURATION))
+    script = script_generator.generate_script(request.topic, duration, request.language)
+    return {"script": script}
+
+
+class TestImageRequest(BaseModel):
+    visual_prompt: str
+    style: str = "cinematic"
+
+
+@app.post("/api/test/image")
+def test_generate_image(request: TestImageRequest):
+    if not request.visual_prompt.strip():
+        raise HTTPException(400, "Промт не може бути порожнім")
+
+    images_dir = os.path.join(TEST_OUTPUT_DIR, "images")
+    os.makedirs(images_dir, exist_ok=True)
+    filename = f"{uuid.uuid4().hex[:10]}.png"
+    path = os.path.join(images_dir, filename)
+
+    # generate_scene_image() очікує "сцену" - для тестової панелі досить
+    # мінімального словника з тим самим промтом, який редагує користувач
+    fake_scene = {"scene": 0, "visual_prompt": request.visual_prompt}
+    scene_generator.generate_scene_image(fake_scene, request.style, path)
+    return {"image_url": f"/output/_test/images/{filename}"}
+
+
+class TestVideoRequest(BaseModel):
+    image_url: str
+    visual_prompt: str
+
+
+def _run_test_video_job(job_id: str, image_path: str, visual_prompt: str):
+    job = test_video_jobs[job_id]
+    videos_dir = os.path.join(TEST_OUTPUT_DIR, "videos")
+    os.makedirs(videos_dir, exist_ok=True)
+    output_path = os.path.join(videos_dir, f"{job_id}.mp4")
+
+    result = ai.generate_video_clip_with_ai(image_path, visual_prompt, output_path)
+    if result is not None:
+        job["status"] = "done"
+        job["video_url"] = f"/output/_test/videos/{job_id}.mp4"
+    else:
+        job["status"] = "error"
+        job["error"] = "Kling AI не повернув результат - деталі причини дивіться в логах сервера"
+
+
+@app.post("/api/test/video")
+def test_generate_video(request: TestVideoRequest, background_tasks: BackgroundTasks):
+    if not ai.has_kling_api():
+        raise HTTPException(400, "KLING_API_KEY не налаштований на сервері")
+
+    relative_path = request.image_url.removeprefix("/output/")
+    image_path = os.path.join(OUTPUT_DIR, relative_path)
+    if not os.path.exists(image_path):
+        raise HTTPException(404, "Зображення для цієї сцени не знайдено")
+
+    job_id = uuid.uuid4().hex[:10]
+    test_video_jobs[job_id] = {"status": "processing", "video_url": None, "error": None}
+    background_tasks.add_task(_run_test_video_job, job_id, image_path, request.visual_prompt)
+    return {"job_id": job_id}
+
+
+@app.get("/api/test/video/{job_id}")
+def get_test_video_status(job_id: str):
+    job = test_video_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Задачу не знайдено")
+    return job
+
+
 # --- Роздача frontend-файлів (лежать у корені проєкту, не в backend/) ---
 
 
@@ -244,6 +337,16 @@ def serve_css():
 @app.get("/script.js")
 def serve_js():
     return FileResponse(os.path.join(BASE_DIR, "script.js"))
+
+
+@app.get("/test")
+def serve_test_page():
+    return FileResponse(os.path.join(BASE_DIR, "test.html"))
+
+
+@app.get("/test.js")
+def serve_test_js():
+    return FileResponse(os.path.join(BASE_DIR, "test.js"))
 
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

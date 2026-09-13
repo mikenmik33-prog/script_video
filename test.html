@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Тестова панель промтів</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Тестова панель промтів</h1>
+    <p class="subtitle">
+      Швидка ітерація коротких сценаріїв (до 15с) і візуальних промтів -
+      без повного циклу монтажу. Картинки безкоштовні (Pollinations),
+      відео платне (Kling AI) і генерується лише за вашим явним запитом.
+    </p>
+  </header>
+
+  <main class="test-layout">
+    <section class="panel">
+      <h2>1. Сценарій</h2>
+      <form id="script-form">
+        <label for="topic">Тема</label>
+        <input
+          type="text"
+          id="topic"
+          required
+          placeholder="Наприклад: загадка Бермудського трикутника"
+        />
+
+        <label for="duration">Тривалість (сек, максимум 15)</label>
+        <input type="number" id="duration" value="15" min="5" max="15" />
+
+        <label for="style">Стиль</label>
+        <select id="style">
+          <option value="cinematic">Кінематографічний</option>
+          <option value="minimal">Мінімалістичний</option>
+          <option value="energetic">Енергійний</option>
+          <option value="news">Новинний</option>
+        </select>
+
+        <label for="language">Мова</label>
+        <select id="language">
+          <option value="uk">Українська</option>
+          <option value="en">English</option>
+        </select>
+
+        <button type="submit" id="script-submit">Згенерувати сценарій</button>
+      </form>
+      <p id="script-error" class="error-message" hidden></p>
+    </section>
+
+    <section class="panel" id="scenes-panel" hidden>
+      <h2>2. Сцени - редагуйте й перевіряйте промти</h2>
+      <div id="scenes-list" class="test-scenes-list"></div>
+    </section>
+  </main>
+
+  <script src="test.js"></script>
+</body>
+</html>
