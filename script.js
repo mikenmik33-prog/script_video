@@ -200,9 +200,9 @@ const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
 
 function formatViews(views) {
   if (views === null || views === undefined) return null;
-  if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}М переглядів`;
-  if (views >= 1_000) return `${(views / 1_000).toFixed(1)}тис. переглядів`;
-  return `${views} переглядів`;
+  // точна кількість переглядів з розділювачами розрядів (напр. "1 234 567"),
+  // а не скорочено - користувач попросив саме реальне число
+  return `${views.toLocaleString("uk-UA")} переглядів`;
 }
 
 function formatUpdatedAt(unixSeconds) {

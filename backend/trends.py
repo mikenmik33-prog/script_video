@@ -1,16 +1,23 @@
 """
 Модуль трендових ідей для відео.
 
-У фоновому потоці періодично підтягує список найпопулярніших відео з
-YouTube Data API v3 (chart=mostPopular) і зберігає його в пам'яті,
-відсортованим від найпопулярнішого до найменш популярного за кількістю
-переглядів. Назви цих відео пропонуються користувачу на сайті як
-готові ідеї теми - досить клікнути, і тема підставиться у форму.
+Працюємо в одній фіксованій ніші - цікаві факти, наука/технології та
+загадкові/містичні історії (у форматі оповіді про щось цікаве, а не
+гейминг/меми/трейлери). Тому замість "просто найпопулярніші відео
+YouTube" (chart=mostPopular) шукаємо трендові відео САМЕ в цій ніші
+через пошук (search.list за ключовими словами NICHE_QUERIES), а тоді
+підтягуємо реальну кількість переглядів (videos.list) і сортуємо від
+найбільшої до найменшої.
+
+Це коштує значно дорожчої квоти YouTube API, ніж chart=mostPopular
+(search.list = 100 одиниць за виклик, безкоштовна квота - 10 000/добу),
+тому фонове оновлення відбувається рідше (раз на кілька годин), а не
+щохвилини.
 
 Якщо YOUTUBE_API_KEY не задано (або запит не вдався), повертається
-невеликий локальний DEMO-список ідей - так само, як інші модулі
-конвеєра, ця частина ніколи не "падає" через відсутність чи збій
-зовнішнього сервісу.
+невеликий локальний DEMO-список ідей цієї ж ніші - так само, як інші
+модулі конвеєра, ця частина ніколи не "падає" через відсутність чи
+збій зовнішнього сервісу.
 """
 
 import json
@@ -29,19 +36,31 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()
-YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos"
+YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 YOUTUBE_TIMEOUT_SECONDS = 20
 
 REGION_CODE = "UA"
-MAX_RESULTS = 25
-REFRESH_INTERVAL_SECONDS = 30 * 60  # оновлювати список раз на 30 хвилин
+RELEVANCE_LANGUAGE = "uk"
 
-# Резервний список ідей, якщо YOUTUBE_API_KEY не задано або запит не вдався
+# Ніша: цікаві факти / наука і технології / загадкові історії - усе у
+# форматі короткої розповіді "про щось цікаве"
+NICHE_QUERIES = ["цікаві факти", "наукові факти", "загадкові історії факти"]
+RESULTS_PER_QUERY = 10
+MAX_IDEAS = 20
+
+# search.list коштує 100 одиниць квоти за запит (у нас 3 запити на
+# оновлення + 1 дешевий videos.list) - тому оновлюємо нечасто, щоб не
+# вичерпати безкоштовну добову квоту (10 000 одиниць/добу)
+REFRESH_INTERVAL_SECONDS = 3 * 60 * 60  # раз на 3 години
+
+# Резервний список ідей тієї самої ніші, якщо YOUTUBE_API_KEY не задано
+# або запит не вдався
 DEMO_IDEAS = [
     {"title": "Що буде, якщо Земля перестане обертатися?", "views": None, "thumbnail": None},
     {"title": "Найдивовижніші факти про космос", "views": None, "thumbnail": None},
     {"title": "Що станеться, якщо зникнуть усі бджоли?", "views": None, "thumbnail": None},
-    {"title": "5 речей, які можуть знищити людство", "views": None, "thumbnail": None},
+    {"title": "Найзагадковіші історії, які досі не розкриті", "views": None, "thumbnail": None},
     {"title": "Що буде, якщо викопати тунель крізь Землю?", "views": None, "thumbnail": None},
 ]
 
@@ -50,16 +69,38 @@ _cached_ideas = list(DEMO_IDEAS)
 _last_updated = None
 
 
-def _fetch_trending_videos() -> list:
-    """Один запит до YouTube Data API за найпопулярнішими відео регіону."""
+def _search_video_ids(query: str) -> list:
+    """Пошук відео за ключовим словом ніші. Повертає список videoId
+    (без статистики переглядів - search.list її не дає)."""
     params = {
-        "part": "snippet,statistics",
-        "chart": "mostPopular",
+        "part": "id",
+        "q": query,
+        "type": "video",
+        "order": "viewCount",
         "regionCode": REGION_CODE,
-        "maxResults": str(MAX_RESULTS),
+        "relevanceLanguage": RELEVANCE_LANGUAGE,
+        "maxResults": str(RESULTS_PER_QUERY),
         "key": YOUTUBE_API_KEY,
     }
-    url = f"{YOUTUBE_API_URL}?{urllib.parse.urlencode(params)}"
+    url = f"{YOUTUBE_SEARCH_URL}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url)
+    with urllib.request.urlopen(request, timeout=YOUTUBE_TIMEOUT_SECONDS) as response:
+        body = json.loads(response.read().decode("utf-8"))
+
+    return [item["id"]["videoId"] for item in body.get("items", []) if item.get("id", {}).get("videoId")]
+
+
+def _fetch_video_stats(video_ids: list) -> list:
+    """Реальна кількість переглядів і мініатюри для списку videoId (одним запитом)."""
+    if not video_ids:
+        return []
+
+    params = {
+        "part": "snippet,statistics",
+        "id": ",".join(video_ids),
+        "key": YOUTUBE_API_KEY,
+    }
+    url = f"{YOUTUBE_VIDEOS_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url)
     with urllib.request.urlopen(request, timeout=YOUTUBE_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
@@ -71,11 +112,23 @@ def _fetch_trending_videos() -> list:
         thumbnails = item["snippet"].get("thumbnails", {})
         thumbnail = (thumbnails.get("medium") or thumbnails.get("default") or {}).get("url")
         ideas.append({"title": title, "views": views, "thumbnail": thumbnail})
-
-    # mostPopular і так відсортований YouTube'ом, але сортуємо явно -
-    # це саме те, що просив користувач ("від найбільш до найменш популярного")
-    ideas.sort(key=lambda i: i["views"], reverse=True)
     return ideas
+
+
+def _fetch_niche_trending() -> list:
+    """Збирає трендові відео ніші з кількох пошукових запитів, прибирає
+    дублікати і сортує від найбільшої кількості переглядів до найменшої."""
+    video_ids = []
+    seen = set()
+    for query in NICHE_QUERIES:
+        for video_id in _search_video_ids(query):
+            if video_id not in seen:
+                seen.add(video_id)
+                video_ids.append(video_id)
+
+    ideas = _fetch_video_stats(video_ids)
+    ideas.sort(key=lambda i: i["views"], reverse=True)
+    return ideas[:MAX_IDEAS]
 
 
 def refresh_ideas() -> bool:
@@ -86,7 +139,7 @@ def refresh_ideas() -> bool:
         return False
 
     try:
-        ideas = _fetch_trending_videos()
+        ideas = _fetch_niche_trending()
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
         logger.warning("YouTube API недоступний (%s), лишаємо попередній список ідей", exc)
         return False
