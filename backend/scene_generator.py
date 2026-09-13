@@ -28,9 +28,13 @@ STYLE_PALETTES = {
 }
 DEFAULT_STYLE = "cinematic"
 
-# Додається до visual_prompt від AI, щоб зображення відповідало обраному стилю відео
+# Додається до visual_prompt від AI, щоб зображення відповідало обраному стилю відео.
+# "dramatic"/"moody" свідомо уникаємо в кожному суфіксі - разом з
+# кінематографічними вимогами в _build_script_prompt() це раніше
+# штовхало модель до майже чорних силуетів у тумані/темряві замість
+# чіткої, добре освітленої картинки
 STYLE_PROMPT_SUFFIXES = {
-    "cinematic": "cinematic lighting, dramatic, film still, high detail",
+    "cinematic": "cinematic film still, high detail, well-lit scene, clearly visible subject",
     "minimal": "minimalist, clean, flat design, simple shapes, soft colors",
     "energetic": "vibrant colors, dynamic, high energy, bold composition",
     "news": "photorealistic, documentary style, serious tone, neutral lighting",
@@ -89,8 +93,10 @@ def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
     # малюнок/арт, а стиль лише додає свій відтінок зверху
     full_prompt = (
         f"{scene['visual_prompt']}, photorealistic, realistic photography, shot on camera, "
-        f"cinematic composition, professional lighting, {style_suffix}, "
-        f"vertical 9:16, no text, no watermark, not a painting, not illustration, not digital art"
+        f"cinematic composition, professional lighting, sharp focus, highly detailed, "
+        f"clearly visible well-lit main subject, {style_suffix}, "
+        f"vertical 9:16, no text, no watermark, not a painting, not illustration, not digital art, "
+        f"not overly dark, not a silhouette"
     )
 
     ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
