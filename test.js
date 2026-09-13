@@ -153,6 +153,45 @@ function createSceneCard(scene, style) {
   previewVideo.hidden = true;
   card.appendChild(previewVideo);
 
+  // Дозволяє "продовжити" сцену новим кліпом з того місця, де закінчився
+  // попередній (наприклад: хвиля накрила камеру -> новий кадр під водою) -
+  // бере останній кадр щойно згенерованого відео просто в браузері
+  // (через canvas, без жодного звернення до сервера) і підставляє його
+  // як нову вихідну картинку для наступної генерації
+  const continueButton = document.createElement("button");
+  continueButton.type = "button";
+  continueButton.className = "test-continue-button";
+  continueButton.textContent = "➜ Взяти останній кадр і продовжити";
+  continueButton.hidden = true;
+  card.appendChild(continueButton);
+
+  continueButton.addEventListener("click", () => {
+    const captureFrame = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = previewVideo.videoWidth;
+      canvas.height = previewVideo.videoHeight;
+      canvas.getContext("2d").drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/png");
+
+      lastImageData = dataUrl;
+      previewImg.src = dataUrl;
+      previewImg.hidden = false;
+      removeImageButton.hidden = false;
+      uploadZone.classList.remove("has-image");
+      previewVideo.hidden = true;
+      continueButton.hidden = true;
+      statusText.textContent = "Останній кадр узято як нову картинку - онови промт (опиши продовження дії) і натисни «Перегенерувати картинку» або одразу «Згенерувати відео».";
+    };
+
+    const onSeeked = () => {
+      previewVideo.removeEventListener("seeked", onSeeked);
+      captureFrame();
+    };
+    previewVideo.addEventListener("seeked", onSeeked);
+    // трохи відступаємо від самого кінця - останній кадр іноді порожній/чорний
+    previewVideo.currentTime = Math.max(0, previewVideo.duration - 0.1);
+  });
+
   imageButton.addEventListener("click", async () => {
     imageButton.disabled = true;
     statusText.textContent = "Генерується картинка...";
@@ -207,7 +246,7 @@ function createSceneCard(scene, style) {
         throw new Error(body.detail || "Не вдалося запустити генерацію відео");
       }
       const { job_id: jobId } = await response.json();
-      await pollVideoJob(jobId, statusText, previewVideo);
+      await pollVideoJob(jobId, statusText, previewVideo, continueButton);
     } catch (err) {
       statusText.textContent = `Помилка: ${err.message}`;
     } finally {
@@ -218,7 +257,7 @@ function createSceneCard(scene, style) {
   return card;
 }
 
-async function pollVideoJob(jobId, statusText, previewVideo) {
+async function pollVideoJob(jobId, statusText, previewVideo, continueButton) {
   statusText.textContent = "fal.ai генерує відео (може тривати до 3 хв)...";
   const POLL_INTERVAL_MS = 4000;
 
@@ -235,6 +274,7 @@ async function pollVideoJob(jobId, statusText, previewVideo) {
     if (data.status === "done") {
       previewVideo.src = data.video_url;
       previewVideo.hidden = false;
+      continueButton.hidden = false;
       statusText.textContent = "Відео готове!";
       return;
     }

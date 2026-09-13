@@ -451,6 +451,21 @@ button#submit-button:disabled {
   min-height: 16px;
 }
 
+.test-continue-button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.test-continue-button:hover {
+  background: var(--accent-hover);
+}
+
 .test-images-row {
   display: flex;
   flex-wrap: wrap;
