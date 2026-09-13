@@ -1,18 +1,24 @@
 """
 Централізований модуль для роботи із зовнішніми AI-сервісами.
 
-Це єдине місце, яке потрібно буде змінити, коли підключатимуться платні
-API (генерація зображень/відео, TTS). Текстова частина (сценарій) вже
-підключена до безкоштовного Gemini API - якщо задати GEMINI_API_KEY,
-сценарій писатиме реальна AI-модель; якщо ключа немає (або стався
-збій запиту) - викликач (script_generator) переходить на локальний
-DEMO-шаблон.
+Це єдине місце, яке потрібно буде змінити, коли підключатимуться нові
+AI-сервіси (наприклад платна генерація зображень/відео).
 
-generate_visual_with_ai() та generate_voice_with_ai() поки залишаються
-заглушками з тим самим принципом: реалізуй функцію - і решта коду
-підхопить реальний сервіс без жодних змін деінде.
+- Сценарій: Gemini API (потрібен GEMINI_API_KEY, безкоштовний).
+- Озвучка: edge-tts - безкоштовний, без API-ключа (використовує
+  публічний сервіс синтезу мовлення Microsoft Edge). Це неофіційна
+  бібліотека, тому за потреби легко замінити на офіційний платний TTS
+  (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
+  та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
+
+Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
+збій відповіді) - відповідна generate_*_with_ai() повертає None, і
+викликач (script_generator / voice_generator) переходить на локальну
+DEMO-заглушку. Це гарантує, що застосунок ніколи не "падає" через
+проблеми з зовнішнім сервісом.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +26,11 @@ import urllib.error
 import urllib.request
 
 from dotenv import load_dotenv
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
 
 load_dotenv()
 
@@ -34,6 +45,12 @@ GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
 
+# Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
+EDGE_TTS_VOICES = {
+    "uk": "uk-UA-PolinaNeural",
+    "en": "en-US-AriaNeural",
+}
+
 DEMO_MODE = not (OPENAI_API_KEY or GEMINI_API_KEY or VIDEO_API_KEY or TTS_API_KEY)
 
 
@@ -46,7 +63,7 @@ def has_visual_api() -> bool:
 
 
 def has_voice_api() -> bool:
-    return bool(TTS_API_KEY)
+    return edge_tts is not None or bool(TTS_API_KEY)
 
 
 def _strip_code_fence(text: str) -> str:
@@ -70,13 +87,20 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Перша сцена - сильний hook, що одразу чіпляє увагу. "
         "Остання сцена - короткий висновок і заклик підписатись. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
-        "Це текст для озвучки голосом, тому всі числа пиши словами, "
-        "не цифрами, і в правильній граматичній формі за контекстом "
-        "(наприклад: «333» -> «триста тридцять три», але «у 333 році» -> "
-        "«у триста тридцять третьому році», «5 хвилин» -> «п'ять хвилин»). "
-        f"Поверни ВИКЛЮЧНО JSON-масив рядків довжиною {scene_count} "
-        "(один текст на одну сцену), без markdown і без пояснень. "
-        'Приклад формату: ["Текст сцени 1", "Текст сцени 2"]'
+        "Для кожної сцени поверни ДВА варіанти тексту:\n"
+        "- voice_text - текст для озвучки голосом. Усі числа тут пиши "
+        "словами, не цифрами, у правильній граматичній формі за "
+        "контекстом (наприклад: «333» -> «триста тридцять три», але "
+        "«у 333 році» -> «у триста тридцять третьому році», "
+        "«5 хвилин» -> «п'ять хвилин»).\n"
+        "- subtitle - той самий текст для субтитрів на екрані, але "
+        "числа тут пиши звичайними цифрами (наприклад «333», «1986 рік», "
+        "«5 хвилин»), як їх зазвичай пишуть у субтитрах.\n"
+        f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
+        'формату {"voice_text": "...", "subtitle": "..."}, без markdown '
+        "і без пояснень. Приклад: "
+        '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
+        '"subtitle": "У 1986 році..."}]'
     )
 
 
@@ -98,12 +122,12 @@ def _call_gemini(prompt: str) -> str:
     return body["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def generate_script_lines_with_ai(topic: str, scene_count: int, language: str):
-    """Генерує текст озвучки для кожної сцени через Gemini API.
+def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
+    """Генерує текст сцен (окремо voice_text і subtitle) через Gemini API.
 
-    Повертає список рядків довжиною scene_count, або None - якщо
-    ключа немає чи запит не вдався (тоді script_generator
-    використовує локальний DEMO-шаблон).
+    Повертає список словників {"voice_text": ..., "subtitle": ...}
+    довжиною scene_count, або None - якщо ключа немає чи запит не
+    вдався (тоді script_generator використовує локальний DEMO-шаблон).
     """
     if not GEMINI_API_KEY:
         return None
@@ -111,14 +135,19 @@ def generate_script_lines_with_ai(topic: str, scene_count: int, language: str):
     try:
         prompt = _build_script_prompt(topic, scene_count, language)
         raw_text = _call_gemini(prompt)
-        lines = json.loads(_strip_code_fence(raw_text))
+        scenes = json.loads(_strip_code_fence(raw_text))
 
-        if not isinstance(lines, list) or len(lines) != scene_count:
+        if not isinstance(scenes, list) or len(scenes) != scene_count:
             logger.warning("Gemini повернув невірну кількість сцен, використовуємо DEMO-шаблон")
             return None
 
-        return [str(line).strip() for line in lines]
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError) as exc:
+        result = []
+        for scene in scenes:
+            voice_text = str(scene["voice_text"]).strip()
+            subtitle = str(scene.get("subtitle", voice_text)).strip()
+            result.append({"voice_text": voice_text, "subtitle": subtitle})
+        return result
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.warning("Gemini API недоступний (%s), використовуємо DEMO-шаблон", exc)
         return None
 
@@ -133,11 +162,25 @@ def generate_visual_with_ai(prompt: str, output_path: str):
     raise NotImplementedError("Реальний API генерації візуалу ще не підключено")
 
 
-def generate_voice_with_ai(text: str, output_path: str, language: str):
-    """Місце для підключення реального TTS API.
+async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
 
-    Повертає шлях до збереженого аудіофайлу або None, якщо ключа немає.
+
+def generate_voice_with_ai(text: str, output_path: str, language: str):
+    """Синтезує озвучку через edge-tts (безкоштовно, без API-ключа).
+
+    Повертає шлях до збереженого mp3-файлу, або None - якщо бібліотека
+    не встановлена чи запит не вдався (тоді voice_generator створює
+    тестову тишу потрібної тривалості).
     """
-    if not has_voice_api():
+    if edge_tts is None:
         return None
-    raise NotImplementedError("Реальний TTS API ще не підключено")
+
+    voice = EDGE_TTS_VOICES.get(language, EDGE_TTS_VOICES["uk"])
+    try:
+        asyncio.run(_synthesize_with_edge_tts(text, voice, output_path))
+        return output_path
+    except Exception as exc:  # мережа/сервіс edge-tts можуть бути недоступні
+        logger.warning("edge-tts недоступний (%s), використовуємо тестову тишу", exc)
+        return None

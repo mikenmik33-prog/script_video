@@ -1,17 +1,25 @@
 """
-DEMO-генератор сценарію.
+Генератор сценарію.
 
 Перетворює тему відео на короткий динамічний сценарій для Shorts/TikTok:
 hook -> основна частина -> висновок, автоматично розбитий на сцени.
 
-Спочатку пробує реальний AI (ai.generate_script_with_ai). Якщо API-ключ
-не налаштований (DEMO-режим), використовується локальний шаблонний
-генератор нижче - він не залежить від жодного зовнішнього сервісу.
+Спочатку пробує реальний AI (ai.generate_script_scenes_with_ai, Gemini).
+Якщо ключа немає або запит не вдався, використовується локальний
+шаблонний генератор нижче - він не залежить від жодного зовнішнього
+сервісу.
+
+Кожна сцена містить два тексти: voice_text (для озвучки - числа
+словами) і subtitle (для екрану - числа цифрами). "duration" на цьому
+етапі лише орієнтовна оцінка - voice_generator пізніше замінить її на
+реальну тривалість згенерованої озвучки.
 """
 
 from backend import ai
 
-SCENE_DURATION = 5  # орієнтовна тривалість однієї сцени, секунди
+SCENE_DURATION = 5  # орієнтовна тривалість однієї сцени, секунди (лише
+# початкова оцінка - voice_generator пізніше замінить її на реальну
+# тривалість озвучки, щоб відео, аудіо й субтитри збігались ідеально)
 
 TRANSITIONS = ["fade", "cut", "slide"]
 
@@ -87,22 +95,24 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
     scene_count = max(3, round(duration / SCENE_DURATION))
     durations = _split_duration(duration, scene_count)
 
-    ai_lines = ai.generate_script_lines_with_ai(topic, scene_count, language)
-    if ai_lines is not None:
-        lines = ai_lines
+    ai_scenes_text = ai.generate_script_scenes_with_ai(topic, scene_count, language)
+    if ai_scenes_text is not None:
+        scene_texts = ai_scenes_text
     else:
         template = _get_template(language)
         lines = _build_lines(topic, template, scene_count)
+        # DEMO-шаблон не містить чисел, тому voice_text і subtitle однакові
+        scene_texts = [{"voice_text": line, "subtitle": line} for line in lines]
 
     scenes = []
-    for index, (text, scene_duration) in enumerate(zip(lines, durations), start=1):
+    for index, (texts, scene_duration) in enumerate(zip(scene_texts, durations), start=1):
         visual_prompt = f"{topic} - {'сцена' if language == 'uk' else 'scene'} {index}"
         scenes.append({
             "scene": index,
             "duration": scene_duration,
-            "voice_text": text,
+            "voice_text": texts["voice_text"],
             "visual_prompt": visual_prompt,
-            "subtitle": text,
+            "subtitle": texts["subtitle"],
             "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
         })
 
@@ -110,6 +120,6 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
         "topic": topic,
         "language": language,
         "duration": duration,
-        "full_text": " ".join(lines),
+        "full_text": " ".join(s["voice_text"] for s in scenes),
         "scenes": scenes,
     }

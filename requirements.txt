@@ -3,3 +3,4 @@ uvicorn[standard]==0.52.4
 python-multipart==0.0.32
 pillow==12.3.0
 python-dotenv==1.2.3
+edge-tts==7.2.8
