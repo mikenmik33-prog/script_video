@@ -4,3 +4,4 @@ python-multipart==0.0.32
 pillow==12.3.0
 python-dotenv==1.2.3
 edge-tts==7.2.8
+huggingface_hub==1.31.0

@@ -77,12 +77,7 @@ POLLINATIONS_TIMEOUT_SECONDS = 60
 IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
 
 HUGGINGFACE_MODEL = "black-forest-labs/FLUX.1-schnell"
-HUGGINGFACE_URL = f"https://api-inference.huggingface.co/models/{HUGGINGFACE_MODEL}"
 HUGGINGFACE_TIMEOUT_SECONDS = 60
-HUGGINGFACE_MAX_RETRIES = 3
-# скільки чекати, якщо модель ще "прогрівається" (типова затримка
-# безкоштовного тарифу Hugging Face при першому виклику моделі)
-HUGGINGFACE_COLD_START_WAIT_SECONDS = 20
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -215,44 +210,29 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
 
 
 def _generate_image_with_huggingface(prompt: str, output_path: str):
-    """Одна спроба згенерувати зображення через Hugging Face Inference API.
+    """Генерує зображення через офіційну бібліотеку huggingface_hub.
 
-    Повертає output_path при успіху. Кидає виняток при збої (ловить
-    викликач generate_visual_with_ai) - крім HTTP 503 "модель ще
-    завантажується", яку обробляє сама (це типова затримка
-    безкоштовного тарифу при першому виклику конкретної моделі)."""
-    payload = json.dumps({"inputs": prompt}).encode("utf-8")
-    headers = {
-        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    Пряме звернення до api-inference.huggingface.co більше не
+    підтримується (Hugging Face перейшли на систему Inference
+    Providers, де запит автоматично маршрутизується до одного з
+    партнерів - fal.ai, replicate тощо) - тому використовуємо їхній
+    офіційний клієнт замість "сирого" HTTP-запиту, щоб не залежати
+    від внутрішньої логіки маршрутизації, яка може змінюватись.
 
-    for attempt in range(HUGGINGFACE_MAX_RETRIES):
-        request = urllib.request.Request(HUGGINGFACE_URL, data=payload, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=HUGGINGFACE_TIMEOUT_SECONDS) as response:
-                content_type = response.headers.get("Content-Type", "")
-                body = response.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 503 and attempt < HUGGINGFACE_MAX_RETRIES - 1:
-                error_body = exc.read()
-                try:
-                    wait_seconds = json.loads(error_body).get("estimated_time", HUGGINGFACE_COLD_START_WAIT_SECONDS)
-                except (ValueError, AttributeError):
-                    wait_seconds = HUGGINGFACE_COLD_START_WAIT_SECONDS
-                logger.info("Hugging Face: модель ще завантажується, чекаємо %.0f с...", wait_seconds)
-                time.sleep(min(wait_seconds, 60))
-                continue
-            raise
+    Кидає виняток при збої (ловить викликач generate_visual_with_ai)."""
+    from huggingface_hub import InferenceClient
 
-        if "image" in content_type:
-            with open(output_path, "wb") as f:
-                f.write(body)
-            return output_path
-
-        raise RuntimeError(f"Hugging Face повернув не зображення: {body[:200]!r}")
-
-    raise RuntimeError("Hugging Face: модель не встигла завантажитись за відведені спроби")
+    client = InferenceClient(token=HUGGINGFACE_API_KEY, timeout=HUGGINGFACE_TIMEOUT_SECONDS)
+    seed = random.randint(0, 2**31 - 1)
+    image = client.text_to_image(
+        prompt,
+        model=HUGGINGFACE_MODEL,
+        width=IMAGE_WIDTH,
+        height=IMAGE_HEIGHT,
+        seed=seed,
+    )
+    image.save(output_path)
+    return output_path
 
 
 def _generate_image_with_pollinations(prompt: str, output_path: str) -> str:
