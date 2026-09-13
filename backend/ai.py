@@ -382,6 +382,19 @@ def generate_video_clip_with_ai(image_path: str, prompt: str, output_path: str):
 
         logger.warning("Kling AI: не дочекались результату за %s с", KLING_MAX_WAIT_SECONDS)
         return None
+    except urllib.error.HTTPError as exc:
+        # тіло відповіді зазвичай містить точний код/причину помилки Kling
+        # (наприклад брак балансу, неактивований сервіс тощо) - без цього
+        # в логах видно лише голий HTTP-код, замало для діагностики
+        try:
+            error_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            error_body = "<не вдалось прочитати тіло відповіді>"
+        logger.warning(
+            "Kling AI недоступний (HTTP %s: %s), тіло відповіді: %s, лишаємо статичну картинку",
+            exc.code, exc.reason, error_body,
+        )
+        return None
     except Exception as exc:  # структура відповіді ще не перевірена живим викликом
         logger.warning("Kling AI недоступний (%s), лишаємо статичну картинку", exc)
         return None
