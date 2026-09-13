@@ -9,10 +9,18 @@
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image, ImageDraw, ImageFont
 
 from backend import ai
+
+# скільки картинок генерувати одночасно - мережеві виклики (Hugging
+# Face) чекають одна одну, тому паралелізація суттєво скорочує загальний
+# час run_pipeline (важливо на слабкому CPU Render - довгий суцільний
+# блокуючий виклик підвищує ризик примусового рестарту процесу).
+# Помірне число, щоб не впертись у ліміт паралельних запитів API.
+MAX_PARALLEL_IMAGE_REQUESTS = 3
 
 WIDTH, HEIGHT = 720, 1280  # 720p
 
@@ -123,19 +131,31 @@ def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
 def generate_all_scenes(scenes: list, style: str, output_dir: str, progress_callback=None) -> list:
     """Генерує зображення для всіх сцен. Повертає список шляхів до файлів (у порядку сцен).
 
+    Сцени генеруються паралельно (до MAX_PARALLEL_IMAGE_REQUESTS
+    одночасно) - кожен запит мережевий і чекає відповіді Hugging Face,
+    тому паралелізація суттєво скорочує загальний час цього етапу
+    порівняно з послідовним очікуванням.
+
     progress_callback(fraction: 0..1) - необов'язковий, викликається
-    після кожної сцени. Реальна генерація зображення - це мережевий
-    запит і може займати кілька секунд на сцену, тому без цього
-    прогрес-бар виглядав би "завислим" на весь час цього етапу.
+    після завершення КОЖНОЇ сцени (у порядку завершення, не обов'язково
+    за номером), щоб прогрес-бар не виглядав "завислим".
     """
     os.makedirs(output_dir, exist_ok=True)
-    paths = []
-    for i, scene in enumerate(scenes, start=1):
+    paths = [None] * len(scenes)
+    completed = 0
+
+    def _generate_one(index_and_scene):
+        index, scene = index_and_scene
         filename = f"scene_{scene['scene']:02d}.png"
         path = os.path.join(output_dir, filename)
         generate_scene_image(scene, style, path)
-        paths.append(path)
-        if progress_callback is not None:
-            progress_callback(i / len(scenes))
+        return index, path
+
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_IMAGE_REQUESTS) as executor:
+        for index, path in executor.map(_generate_one, enumerate(scenes)):
+            paths[index] = path
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed / len(scenes))
 
     return paths

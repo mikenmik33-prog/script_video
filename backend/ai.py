@@ -44,7 +44,6 @@ import json
 import logging
 import os
 import random
-import time
 import urllib.error
 import urllib.request
 

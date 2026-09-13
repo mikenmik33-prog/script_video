@@ -16,6 +16,7 @@
 
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 from backend import ai
 
@@ -23,6 +24,11 @@ SAMPLE_RATE = 44100
 
 # невелика пауза після кожної репліки, щоб озвучка не звучала "впритул"
 SCENE_PADDING_SECONDS = 0.3
+
+# скільки озвучок генерувати одночасно - edge-tts теж мережевий виклик,
+# паралелізація скорочує загальний час run_pipeline (див. коментар у
+# scene_generator.MAX_PARALLEL_IMAGE_REQUESTS)
+MAX_PARALLEL_VOICE_REQUESTS = 3
 
 
 def _run_ffmpeg(args: list):
@@ -91,12 +97,23 @@ def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk"
 
 def generate_all_voices(scenes: list, output_dir: str, language: str = "uk") -> list:
     """Генерує аудіофайли озвучки для всіх сцен (мутує scene["duration"]
-    кожної сцени реальною тривалістю). Повертає список шляхів (у порядку сцен)."""
+    кожної сцени реальною тривалістю). Повертає список шляхів (у порядку сцен).
+
+    Сцени озвучуються паралельно (до MAX_PARALLEL_VOICE_REQUESTS
+    одночасно) - кожна мутує лише свій власний scene-словник, тому
+    паралельний запис безпечний."""
     os.makedirs(output_dir, exist_ok=True)
-    paths = []
-    for scene in scenes:
+    paths = [None] * len(scenes)
+
+    def _generate_one(index_and_scene):
+        index, scene = index_and_scene
         filename = f"voice_{scene['scene']:02d}.mp3"
         path = os.path.join(output_dir, filename)
         generate_voice_for_scene(scene, path, language)
-        paths.append(path)
+        return index, path
+
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_VOICE_REQUESTS) as executor:
+        for index, path in executor.map(_generate_one, enumerate(scenes)):
+            paths[index] = path
+
     return paths
