@@ -35,6 +35,10 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 MUSIC_DIR = os.path.join(ASSETS_DIR, "music")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
+# НЕ під OUTPUT_DIR - той примонтований як публічна статика (/output/...),
+# а тут лише службовий стан (internal fal.ai URL задач), не призначений
+# для роздачі
+STATE_DIR = os.path.join(BASE_DIR, "state")
 
 ALLOWED_DURATIONS = (30, 60, 90)
 STAGE_ORDER = ["script", "scenes", "visual", "voice", "subtitles", "editing", "export"]
@@ -65,6 +69,7 @@ def _test_cleanup_loop():
     while True:
         time.sleep(TEST_CLEANUP_INTERVAL_SECONDS)
         _delete_old_test_files()
+        _prune_test_video_jobs()
 
 
 def _start_test_cleanup():
@@ -74,8 +79,49 @@ def _start_test_cleanup():
     # рестарт Render видаляв щойно згенеровані картинки посеред роботи
     # користувача на /test.
     _delete_old_test_files()
+    _prune_test_video_jobs()
     thread = threading.Thread(target=_test_cleanup_loop, daemon=True)
     thread.start()
+
+
+# --- Стійкий до рестарту стан тестових video-задач (fal.ai) ---
+#
+# test_video_jobs раніше жив ЛИШЕ в пам'яті процесу - будь-який рестарт
+# сервера (деплой нового коду, примусовий рестарт Render через
+# перевантаження CPU) стирав усі активні задачі, і клієнт бачив
+# "Помилка при перевірці статусу", хоча сама генерація на fal.ai могла
+# продовжуватись (і кошти вже списувались) незалежно від нашого сервера.
+# Зберігаємо стан у JSON-файл після кожної зміни - при рестарті процес
+# підхоплює задачі там, де зупинився.
+TEST_VIDEO_JOBS_FILE = os.path.join(STATE_DIR, "video_jobs.json")
+
+
+def _load_test_video_jobs() -> dict:
+    try:
+        with open(TEST_VIDEO_JOBS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_test_video_jobs():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(TEST_VIDEO_JOBS_FILE, "w", encoding="utf-8") as f:
+        json.dump(test_video_jobs, f)
+
+
+def _prune_test_video_jobs():
+    """Видаляє записи задач, старші за TEST_FILE_MAX_AGE_SECONDS - інакше
+    файл (і словник у пам'яті) ріс би необмежено."""
+    now = time.time()
+    stale_ids = [
+        job_id for job_id, job in test_video_jobs.items()
+        if now - job.get("submitted_at", 0) > TEST_FILE_MAX_AGE_SECONDS
+    ]
+    for job_id in stale_ids:
+        del test_video_jobs[job_id]
+    if stale_ids:
+        _save_test_video_jobs()
 
 app = FastAPI(title="AI Video Generator (DEMO)")
 
@@ -280,10 +326,11 @@ def get_result(job_id: str):
 
 TEST_MAX_DURATION = 15
 
-# Окрема in-memory "база" для тестових video-задач (fal.ai) - та сама
-# логіка, що й jobs, але навмисно окремий словник, щоб тестова панель
-# не змішувалась зі станом основного генератора відео.
-test_video_jobs: dict = {}
+# Тестові video-задачі (fal.ai) - завантажуються з диску при старті,
+# щоб пережити рестарт процесу (див. коментар біля TEST_VIDEO_JOBS_FILE
+# вище). Окремий словник від основного jobs, щоб тестова панель не
+# змішувалась зі станом основного генератора відео.
+test_video_jobs: dict = _load_test_video_jobs()
 
 
 class TestScriptRequest(BaseModel):
@@ -382,6 +429,7 @@ def test_generate_video(request: TestVideoRequest):
         "response_url": job["response_url"],
         "submitted_at": time.time(),
     }
+    _save_test_video_jobs()
     return {"job_id": job_id}
 
 
@@ -395,6 +443,7 @@ def get_test_video_status(job_id: str):
         if time.time() - job["submitted_at"] > ai.FAL_MAX_WAIT_SECONDS:
             job["status"] = "error"
             job["error"] = f"не дочекались результату за {ai.FAL_MAX_WAIT_SECONDS} с"
+            _save_test_video_jobs()
         else:
             videos_dir = os.path.join(TEST_OUTPUT_DIR, "videos")
             os.makedirs(videos_dir, exist_ok=True)
@@ -404,9 +453,11 @@ def get_test_video_status(job_id: str):
             if result == "done":
                 job["status"] = "done"
                 job["video_url"] = f"/output/_test/videos/{job_id}.mp4"
+                _save_test_video_jobs()
             elif result == "error":
                 job["status"] = "error"
                 job["error"] = "fal.ai не повернув результат - деталі причини дивіться в логах сервера"
+                _save_test_video_jobs()
 
     return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
