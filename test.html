@@ -61,17 +61,17 @@
     </section>
 
     <section class="panel" id="finalize-panel" hidden>
-      <h2>3. Завершити повне відео</h2>
+      <h2>3. Підготувати озвучку і субтитри</h2>
       <p class="subtitle">
-        Збирає озвучку, субтитри й монтаж (переходи, музика) з готових
-        картинок/відео сцен вище - у сцен без згенерованого AI-відео
-        використовується картинка з підсвіченими субтитрами, у сцен із
-        відео субтитри накладаються прямо на рух.
+        Без монтажу (щоб не навантажувати сервер) - синтезує реальну
+        озвучку для кожної сцени і .srt файл субтитрів із точним
+        таймінгом. Картинки/відео сцен уже доступні вище на кожній
+        картці - зведіть усе разом самостійно у зручному редакторі.
       </p>
-      <button type="button" id="finalize-button" class="test-continue-button">🎬 Завершити повне відео</button>
+      <button type="button" id="finalize-button" class="test-continue-button">🎙 Підготувати озвучку і субтитри</button>
       <p id="finalize-error" class="error-message" hidden></p>
       <p id="finalize-status" class="test-status"></p>
-      <video id="finalize-video" class="test-preview-video" controls hidden></video>
+      <ul id="finalize-files" class="file-list"></ul>
     </section>
   </main>
 

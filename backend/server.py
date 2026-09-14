@@ -4,12 +4,12 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 Реалізує конвеєр підготовки матеріалів:
 тема -> сценарій -> сцени -> візуал -> озвучка -> субтитри -> файли.
 
-Автоматичний монтаж (FFmpeg) прибрано з основного пайплайна - він був
-найважчим CPU-навантаженням і найчастішою причиною примусових рестартів
-на слабкому сервері. Сайт видає готові матеріали (картинки сцен, аудіо
+Автоматичний монтаж (FFmpeg, editor.py) прибрано ПОВНІСТЮ - і з
+основного пайплайна, і з тестової панелі - він був найважчим CPU-
+навантаженням і найчастішою причиною примусових рестартів на слабкому
+сервері. Сайт видає готові матеріали (картинки/відео сцен, аудіо
 озвучки, .srt субтитри, script.json), а фінальний монтаж користувач
-робить сам у будь-якому відеоредакторі. (editor.build_video лишається
-доступним для окремої функції "Завершити повне відео" на /test.)
+робить сам у будь-якому відеоредакторі.
 
 Запуск (з кореня проєкту):
     uvicorn backend.server:app --reload
@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import ai, editor, scene_generator, script_generator, subtitles, trends, voice_generator
+from backend import ai, scene_generator, script_generator, subtitles, trends, voice_generator
 
 # без цього logger.warning() у backend/*.py міг би тихо загубитись і не
 # потрапити в консоль/логи хостингу (Python не пише логи нікуди, поки
@@ -38,8 +38,6 @@ from backend import ai, editor, scene_generator, script_generator, subtitles, tr
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-MUSIC_DIR = os.path.join(ASSETS_DIR, "music")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
 # НЕ під OUTPUT_DIR - той примонтований як публічна статика (/output/...),
@@ -508,13 +506,14 @@ def get_test_video_status(job_id: str):
     return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
 
-# --- Тестова панель: завершення повного відео з уже готових сцен -----
+# --- Тестова панель: завершення озвучки й субтитрів для готових сцен -
 #
-# На відміну від основного /api/generate, тут не генерується НІЧОГО
-# нового для візуалу - беруться готові картинки/відео сцен, які
-# користувач уже підготував і схвалив на /test, і монтується з них
-# фінальне відео (озвучка, субтитри, переходи, музика) - той самий
-# editor.build_video(), що й в основному пайплайні.
+# Жодного FFmpeg-монтажу тут немає (свідомо прибрано - навіть на /test
+# він так само навантажує слабкий сервер, як і в основному пайплайні).
+# Готуємо лише РЕАЛЬНУ озвучку (voice_generator вимірює справжню
+# тривалість репліки) і .srt субтитри з цією тривалістю - картинки й
+# AI-відео сцен користувач і так уже бачить та може зберегти прямо з
+# карток сцен вище на сторінці.
 
 finalize_jobs: dict = {}
 
@@ -522,9 +521,6 @@ finalize_jobs: dict = {}
 class FinalizeSceneInput(BaseModel):
     voice_text: str
     subtitle: str
-    transition: str = "fade"
-    image_data: str | None = None
-    video_data: str | None = None
 
 
 class FinalizeRequest(BaseModel):
@@ -532,66 +528,31 @@ class FinalizeRequest(BaseModel):
     language: str = "uk"
 
 
-def _decode_data_uri(data_uri: str) -> bytes:
-    _, _, encoded = data_uri.partition(",")
-    return base64.b64decode(encoded)
-
-
 def _run_finalize_job(job_id: str, scene_inputs: list, language: str):
     job = finalize_jobs[job_id]
     job_dir = os.path.join(TEST_OUTPUT_DIR, "final", job_id)
-    scenes_dir = os.path.join(job_dir, "scenes")
-    videos_dir = os.path.join(job_dir, "videos")
     audio_dir = os.path.join(job_dir, "audio")
-    work_dir = os.path.join(job_dir, "work")
-    os.makedirs(scenes_dir, exist_ok=True)
-    os.makedirs(videos_dir, exist_ok=True)
+    os.makedirs(audio_dir, exist_ok=True)
 
     try:
-        scenes = []
-        scene_images = []
-        scene_videos = []
-        for i, item in enumerate(scene_inputs, start=1):
-            if not item.video_data and not item.image_data:
-                raise ValueError(f"Сцена {i}: немає ні картинки, ні відео - спочатку згенеруйте хоча б одне")
-
-            scenes.append({
+        scenes = [
+            {
                 "scene": i,
                 "duration": 5,  # орієнтовна оцінка - voice_generator замінить реальною тривалістю
                 "voice_text": item.voice_text,
                 "subtitle": item.subtitle,
-                "transition": item.transition,
-            })
-
-            image_path = None
-            if item.image_data:
-                image_path = os.path.join(scenes_dir, f"scene_{i:02d}.png")
-                with open(image_path, "wb") as f:
-                    f.write(_decode_data_uri(item.image_data))
-            scene_images.append(image_path)
-
-            video_path = None
-            if item.video_data:
-                video_path = os.path.join(videos_dir, f"scene_{i:02d}.mp4")
-                with open(video_path, "wb") as f:
-                    f.write(_decode_data_uri(item.video_data))
-            scene_videos.append(video_path)
+            }
+            for i, item in enumerate(scene_inputs, start=1)
+        ]
 
         voice_files = voice_generator.generate_all_voices(scenes, audio_dir, language)
 
-        final_video_path = os.path.join(job_dir, "final.mp4")
-        editor.build_video(
-            scenes=scenes,
-            scene_images=scene_images,
-            voice_files=voice_files,
-            work_dir=work_dir,
-            music_dir=MUSIC_DIR,
-            output_path=final_video_path,
-            scene_videos=scene_videos,
-        )
+        srt_path = os.path.join(job_dir, "subtitles.srt")
+        subtitles.generate_srt(scenes, srt_path)
 
         job["status"] = "done"
-        job["video_url"] = f"/output/_test/final/{job_id}/final.mp4"
+        job["voice_files"] = [f"/output/_test/final/{job_id}/audio/{os.path.basename(p)}" for p in voice_files]
+        job["subtitles_url"] = f"/output/_test/final/{job_id}/subtitles.srt"
     except Exception as exc:
         job["status"] = "error"
         job["error"] = str(exc)
@@ -600,10 +561,10 @@ def _run_finalize_job(job_id: str, scene_inputs: list, language: str):
 @app.post("/api/test/finalize")
 def test_finalize_video(request: FinalizeRequest, background_tasks: BackgroundTasks):
     if not request.scenes:
-        raise HTTPException(400, "Немає сцен для монтажу")
+        raise HTTPException(400, "Немає сцен для озвучки")
 
     job_id = uuid.uuid4().hex[:10]
-    finalize_jobs[job_id] = {"status": "processing", "video_url": None, "error": None}
+    finalize_jobs[job_id] = {"status": "processing", "voice_files": None, "subtitles_url": None, "error": None}
     background_tasks.add_task(_run_finalize_job, job_id, request.scenes, request.language)
     return {"job_id": job_id}
 

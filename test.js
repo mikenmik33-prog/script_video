@@ -11,7 +11,7 @@ const finalizePanel = document.getElementById("finalize-panel");
 const finalizeButton = document.getElementById("finalize-button");
 const finalizeError = document.getElementById("finalize-error");
 const finalizeStatus = document.getElementById("finalize-status");
-const finalizeVideo = document.getElementById("finalize-video");
+const finalizeFiles = document.getElementById("finalize-files");
 
 function showError(el, message) {
   el.textContent = message;
@@ -297,9 +297,6 @@ function createSceneCard(scene, style) {
   card.getSceneData = () => ({
     voice_text: voiceInput.value,
     subtitle: subtitleInput.value,
-    transition: scene.transition,
-    image_data: lastVideoData ? null : lastImageData,
-    video_data: lastVideoData,
   });
 
   return card;
@@ -341,7 +338,7 @@ async function handleScriptSubmit(event) {
   scenesPanel.hidden = true;
   scenesList.innerHTML = "";
   finalizePanel.hidden = true;
-  finalizeVideo.hidden = true;
+  finalizeFiles.innerHTML = "";
   clearError(finalizeError);
   finalizeStatus.textContent = "";
 
@@ -385,21 +382,26 @@ async function handleScriptSubmit(event) {
 
 scriptForm.addEventListener("submit", handleScriptSubmit);
 
+function addFinalizeFileLink(label, url) {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = url.split("/").pop();
+  a.rel = "noopener";
+  a.textContent = label;
+  li.appendChild(a);
+  finalizeFiles.appendChild(li);
+}
+
 async function handleFinalizeClick() {
   clearError(finalizeError);
-  finalizeVideo.hidden = true;
+  finalizeFiles.innerHTML = "";
 
   const cards = Array.from(scenesList.children);
   const scenes = cards.map((card) => card.getSceneData());
 
-  const missing = scenes.findIndex((s) => !s.image_data && !s.video_data);
-  if (missing !== -1) {
-    showError(finalizeError, `Сцена ${missing + 1}: немає ні картинки, ні відео - спочатку згенеруйте хоча б одне.`);
-    return;
-  }
-
   finalizeButton.disabled = true;
-  finalizeStatus.textContent = "Синтезуємо озвучку й монтуємо відео...";
+  finalizeStatus.textContent = "Синтезуємо озвучку й готуємо субтитри...";
 
   try {
     const response = await fetch("/api/test/finalize", {
@@ -409,7 +411,7 @@ async function handleFinalizeClick() {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.detail || "Не вдалося запустити монтаж");
+      throw new Error(body.detail || "Не вдалося запустити генерацію");
     }
     const { job_id: jobId } = await response.json();
 
@@ -418,17 +420,19 @@ async function handleFinalizeClick() {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       const statusResponse = await fetch(`/api/test/finalize/${jobId}`);
       if (!statusResponse.ok) {
-        throw new Error("Помилка при перевірці статусу монтажу");
+        throw new Error("Помилка при перевірці статусу");
       }
       const data = await statusResponse.json();
       if (data.status === "done") {
-        finalizeVideo.src = data.video_url;
-        finalizeVideo.hidden = false;
+        addFinalizeFileLink("Субтитри (SRT)", data.subtitles_url);
+        data.voice_files.forEach((url, index) => {
+          addFinalizeFileLink(`Аудіо сцени ${index + 1}`, url);
+        });
         finalizeStatus.textContent = "Готово!";
         break;
       }
       if (data.status === "error") {
-        throw new Error(data.error || "Монтаж завершився помилкою");
+        throw new Error(data.error || "Генерація завершилась помилкою");
       }
     }
   } catch (err) {
