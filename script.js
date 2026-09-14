@@ -73,12 +73,23 @@ function stopPolling() {
   }
 }
 
+// Скільки поспіль невдалих спроб опитування статусу допускаємо, перш ніж
+// здатися - Render безкоштовного тарифу інколи примусово перезапускає
+// процес (найчастіше саме під час важкого етапу монтажу), і на кілька
+// секунд, поки контейнер піднімається заново, запити повертають 502 чи
+// взагалі не доходять. Без цих повторних спроб користувач бачив голу
+// помилку мережі одразу після першого ж такого збою, хоча за кілька
+// секунд сервер знову відповідав.
+const MAX_STATUS_POLL_FAILURES = 60; // ~60с при POLL_INTERVAL_MS=1000 - з запасом на холодний старт Render
+let statusPollFailures = 0;
+
 async function pollStatus(jobId) {
   try {
     const response = await fetch(`/api/status/${jobId}`);
     if (!response.ok) {
       throw new Error("Не вдалося отримати статус задачі");
     }
+    statusPollFailures = 0;
     const status = await response.json();
     renderStages(status.stages, status.progress);
 
@@ -94,9 +105,14 @@ async function pollStatus(jobId) {
       pollTimerId = setTimeout(() => pollStatus(jobId), POLL_INTERVAL_MS);
     }
   } catch (err) {
-    stopPolling();
-    showFormError(err.message);
-    setFormDisabled(false);
+    statusPollFailures += 1;
+    if (statusPollFailures >= MAX_STATUS_POLL_FAILURES) {
+      stopPolling();
+      showFormError("Сервер тимчасово недоступний. Спробуйте оновити сторінку за хвилину.");
+      setFormDisabled(false);
+    } else {
+      pollTimerId = setTimeout(() => pollStatus(jobId), POLL_INTERVAL_MS);
+    }
   }
 }
 

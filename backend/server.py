@@ -70,6 +70,7 @@ def _test_cleanup_loop():
         time.sleep(TEST_CLEANUP_INTERVAL_SECONDS)
         _delete_old_test_files()
         _prune_test_video_jobs()
+        _prune_jobs()
 
 
 def _start_test_cleanup():
@@ -80,6 +81,7 @@ def _start_test_cleanup():
     # користувача на /test.
     _delete_old_test_files()
     _prune_test_video_jobs()
+    _prune_jobs()
     thread = threading.Thread(target=_test_cleanup_loop, daemon=True)
     thread.start()
 
@@ -132,9 +134,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Проста in-memory "база" задач. Без бази даних - достатньо для локального
-# прототипу; стан живе, поки працює процес сервера.
-jobs: dict = {}
+# Стан задач основного генератора - зберігається на диск (той самий
+# принцип, що й test_video_jobs), інакше рестарт процесу (примусовий
+# рестарт Render через нестачу CPU/пам'яті - трапляється саме під час
+# важкого етапу монтажу - або деплой нового коду) стирає задачу
+# повністю, і користувач бачить голий 404/502 замість зрозумілої причини.
+#
+# Важливо: це НЕ дозволяє "доробити" перервану генерацію - run_pipeline
+# виконується в одній Python-функції у фоновому потоці, і коли процес
+# гине, вона гине разом з ним назавжди. Персистентність лише дає змогу
+# показати чітке повідомлення про переривання замість плутаної помилки.
+JOBS_FILE = os.path.join(STATE_DIR, "jobs.json")
+
+
+def _load_jobs() -> dict:
+    try:
+        with open(JOBS_FILE, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+    # будь-яка задача, що лишилась "processing" з МИНУЛОГО запуску
+    # процесу, гарантовано мертва - фоновий потік, що її виконував,
+    # зник разом зі старим процесом
+    for job in loaded.values():
+        if job.get("status") == "processing":
+            job["status"] = "error"
+            job["error"] = "Генерацію перервано рестартом сервера. Спробуйте ще раз."
+    return loaded
+
+
+def _save_jobs():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(JOBS_FILE, "w", encoding="utf-8") as f:
+        json.dump(jobs, f)
+
+
+jobs: dict = _load_jobs()
 
 
 @app.on_event("startup")
@@ -167,7 +203,22 @@ def _new_job_state(request: GenerateRequest) -> dict:
         "error": None,
         "script": None,
         "result": None,
+        "created_at": time.time(),
     }
+
+
+def _prune_jobs():
+    """Видаляє записи задач, старші за TEST_FILE_MAX_AGE_SECONDS - інакше
+    файл (і словник у пам'яті) ріс би необмежено."""
+    now = time.time()
+    stale_ids = [
+        job_id for job_id, job in jobs.items()
+        if now - job.get("created_at", 0) > TEST_FILE_MAX_AGE_SECONDS
+    ]
+    for job_id in stale_ids:
+        del jobs[job_id]
+    if stale_ids:
+        _save_jobs()
 
 
 def _set_stage(job: dict, stage: str, status: str):
@@ -176,6 +227,7 @@ def _set_stage(job: dict, stage: str, status: str):
         job["current_stage"] = stage
     done_count = sum(1 for s in job["stages"].values() if s == "done")
     job["progress"] = round(done_count / len(STAGE_ORDER) * 100, 3)
+    _save_jobs()
 
 
 def _make_stage_progress_callback(job: dict, stage: str):
@@ -263,6 +315,7 @@ def run_pipeline(job_id: str):
     except Exception as exc:  # локальний прототип: показуємо причину користувачу в UI
         job["status"] = "error"
         job["error"] = str(exc)
+    _save_jobs()
 
 
 @app.get("/api/trending-ideas")
@@ -288,6 +341,7 @@ def generate_video(request: GenerateRequest, background_tasks: BackgroundTasks):
 
     job_id = uuid.uuid4().hex[:12]
     jobs[job_id] = _new_job_state(request)
+    _save_jobs()
 
     background_tasks.add_task(run_pipeline, job_id)
     return {"job_id": job_id}
