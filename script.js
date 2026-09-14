@@ -159,7 +159,106 @@ function renderResult(data) {
     addFileLink(filesList, `Аудіо сцени ${index + 1}`, url);
   });
 
+  const sceneVideosList = document.getElementById("result-scene-videos");
+  sceneVideosList.innerHTML = "";
+  result.scene_images.forEach((imageUrl, index) => {
+    const scene = script.scenes[index];
+    sceneVideosList.appendChild(createSceneVideoCard(scene, imageUrl));
+  });
+
   resultPanel.hidden = false;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Оживлення окремої сцени рухом через fal.ai - перевикористовує ту саму
+// платну чергу image-to-video, що й тестова панель (/api/test/video),
+// просто з готовою картинкою сцени замість щойно згенерованої на /test.
+function createSceneVideoCard(scene, imageUrl) {
+  const card = document.createElement("div");
+  card.className = "test-scene-card";
+
+  const header = document.createElement("h3");
+  header.textContent = `Сцена ${scene.scene}`;
+  card.appendChild(header);
+
+  const img = document.createElement("img");
+  img.className = "test-preview-image";
+  img.src = imageUrl;
+  card.appendChild(img);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "test-continue-button";
+  button.textContent = "🎬 Оживити сцену (fal.ai, платно)";
+  card.appendChild(button);
+
+  const statusText = document.createElement("p");
+  statusText.className = "test-status";
+  card.appendChild(statusText);
+
+  const previewVideo = document.createElement("video");
+  previewVideo.className = "test-preview-video";
+  previewVideo.controls = true;
+  previewVideo.hidden = true;
+  card.appendChild(previewVideo);
+
+  button.addEventListener("click", async () => {
+    const confirmed = window.confirm("Це реально витратить платний баланс fal.ai. Продовжити?");
+    if (!confirmed) return;
+
+    button.disabled = true;
+    statusText.textContent = "Завантажуємо картинку сцени...";
+    try {
+      const imageBlob = await (await fetch(imageUrl)).blob();
+      const imageData = await blobToDataUrl(imageBlob);
+
+      statusText.textContent = "Надсилаємо запит до fal.ai...";
+      const response = await fetch("/api/test/video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_data: imageData, visual_prompt: scene.visual_prompt }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Не вдалося запустити генерацію відео");
+      }
+      const { job_id: jobId } = await response.json();
+
+      statusText.textContent = "fal.ai генерує відео (може тривати до 3 хв)...";
+      const POLL_INTERVAL_MS = 4000;
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        const statusResponse = await fetch(`/api/test/video/${jobId}`);
+        if (!statusResponse.ok) {
+          throw new Error("Помилка при перевірці статусу");
+        }
+        const data = await statusResponse.json();
+        if (data.status === "done") {
+          previewVideo.src = data.video_url;
+          previewVideo.hidden = false;
+          statusText.textContent = "Відео готове!";
+          break;
+        }
+        if (data.status === "error") {
+          throw new Error(data.error || "fal.ai не повернув результат");
+        }
+      }
+    } catch (err) {
+      statusText.textContent = `Помилка: ${err.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  return card;
 }
 
 function addFileLink(container, label, url) {
