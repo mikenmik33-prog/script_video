@@ -178,9 +178,9 @@ function blobToDataUrl(blob) {
   });
 }
 
-// Оживлення окремої сцени рухом через fal.ai - перевикористовує ту саму
-// платну чергу image-to-video, що й тестова панель (/api/test/video),
-// просто з готовою картинкою сцени замість щойно згенерованої на /test.
+// Оживлення окремої сцени рухом через fal.ai (image-to-video) -
+// вибіркова платна дія для однієї конкретної сцени, лише за явним
+// підтвердженням.
 function createSceneVideoCard(scene, imageUrl) {
   const card = document.createElement("div");
   card.className = "test-scene-card";
@@ -231,7 +231,7 @@ function createSceneVideoCard(scene, imageUrl) {
       const imageData = await blobToDataUrl(imageBlob);
 
       statusText.textContent = "Надсилаємо запит до fal.ai...";
-      const response = await fetch("/api/test/video", {
+      const response = await fetch("/api/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_data: imageData, visual_prompt: promptInput.value }),
@@ -246,7 +246,7 @@ function createSceneVideoCard(scene, imageUrl) {
       const POLL_INTERVAL_MS = 4000;
       while (true) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        const statusResponse = await fetch(`/api/test/video/${jobId}`);
+        const statusResponse = await fetch(`/api/video/${jobId}`);
         if (!statusResponse.ok) {
           throw new Error("Помилка при перевірці статусу");
         }

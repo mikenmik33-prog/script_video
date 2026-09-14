@@ -34,38 +34,6 @@ body {
   font-size: 28px;
 }
 
-.topbar-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.topnav {
-  display: flex;
-  gap: 8px;
-}
-
-.topnav-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-size: 13px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-}
-
-.topnav-link:hover {
-  color: var(--text);
-  border-color: var(--panel-border);
-}
-
-.topnav-link.active {
-  color: var(--text);
-  background: var(--input-bg);
-  border-color: var(--panel-border);
-}
-
 .subtitle {
   margin: 0;
   color: var(--text-muted);
@@ -363,15 +331,7 @@ button#submit-button:disabled {
   text-decoration: underline;
 }
 
-/* --- Тестова панель промтів (test.html) --- */
-
-.test-layout {
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 24px;
-  padding: 32px 40px;
-  align-items: start;
-}
+/* --- Картки "оживити сцену" (fal.ai) у панелі результату --- */
 
 .test-scenes-list {
   display: flex;
@@ -410,32 +370,6 @@ button#submit-button:disabled {
   margin-top: 6px;
 }
 
-.test-buttons-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.test-buttons-row button {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.test-buttons-row button:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.test-buttons-row button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .danger-button {
   background: var(--error) !important;
 }
@@ -471,69 +405,10 @@ button#submit-button:disabled {
   cursor: not-allowed;
 }
 
-.test-images-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.test-preview-wrap {
-  position: relative;
-  display: inline-block;
-}
-
 .test-preview-image,
 .test-preview-video {
   display: block;
   max-width: 260px;
   border-radius: 8px;
   background: black;
-}
-
-.test-remove-image-button {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.test-remove-image-button:hover {
-  background: rgba(200, 40, 40, 0.85);
-}
-
-.test-upload-zone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  white-space: pre-line;
-  width: 180px;
-  min-height: 200px;
-  border: 2px dashed rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.test-upload-zone:hover,
-.test-upload-zone.dragover {
-  border-color: rgba(255, 255, 255, 0.6);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.test-upload-zone.has-image {
-  border-style: solid;
-  border-color: rgba(120, 200, 120, 0.6);
 }
