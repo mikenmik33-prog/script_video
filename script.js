@@ -156,7 +156,11 @@ function addFileLink(container, label, url) {
   const li = document.createElement("li");
   const a = document.createElement("a");
   a.href = url;
-  a.target = "_blank";
+  // download - клік одразу зберігає файл (замість відкриття в новій
+  // вкладці, де картинку/аудіо ще довелося б зберігати вручну). Ім'я
+  // файлу беремо з самого URL (той самий origin, тому браузер не
+  // ігнорує атрибут через cross-origin обмеження).
+  a.download = url.split("/").pop();
   a.rel = "noopener";
   a.textContent = label;
   li.appendChild(a);
