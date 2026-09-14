@@ -113,6 +113,53 @@ def _strip_code_fence(text: str) -> str:
 
 def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
     language_instruction = "українською мовою" if language == "uk" else "in English"
+
+    if language == "uk":
+        number_format_instruction = (
+            "- voice_text - текст для озвучки голосом. Усі числа тут пиши "
+            "словами, не цифрами, у правильній граматичній формі за "
+            "контекстом (наприклад: «333» -> «триста тридцять три», але "
+            "«у 333 році» -> «у триста тридцять третьому році», "
+            "«5 хвилин» -> «п'ять хвилин»).\n"
+        )
+        subtitle_instruction = (
+            "- subtitle - ТОЧНО ТОЙ САМИЙ текст, слово в слово, що й "
+            "voice_text, БЕЗ жодних перефразувань, синонімів чи інших слів - "
+            "єдина дозволена відмінність: числа тут пиши звичайними цифрами "
+            "замість слів (наприклад «333», «1986 рік», «5 хвилин»), як їх "
+            "зазвичай пишуть у субтитрах. Не вигадуй нові слова чи "
+            "формулювання, яких немає у voice_text.\n"
+        )
+        json_example = (
+            '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
+            '"subtitle": "У 1986 році...", "visual_prompt": "A Soviet nuclear '
+            'power plant control room at night, dim red warning lights, tense '
+            'atmosphere, cinematic, vertical composition"}]'
+        )
+    else:
+        number_format_instruction = (
+            "- voice_text - the narration text. ALL numbers here must be "
+            "written out as WORDS, in natural spoken English, using the way "
+            "numbers are normally read aloud depending on context (e.g. "
+            "\"333\" -> \"three hundred thirty-three\", but a year like "
+            "\"1986\" -> \"nineteen eighty-six\", \"5 minutes\" -> \"five "
+            "minutes\").\n"
+        )
+        subtitle_instruction = (
+            "- subtitle - the EXACT SAME text, word for word, as voice_text, "
+            "with NO paraphrasing, synonyms or different wording - the ONLY "
+            "allowed difference: write numbers here as plain digits instead "
+            "of words (e.g. \"333\", \"1986\", \"5 minutes\"), the way "
+            "numbers are normally written in subtitles. Do not invent new "
+            "words or phrasing that isn't in voice_text.\n"
+        )
+        json_example = (
+            '[{"voice_text": "In nineteen eighty-six...", '
+            '"subtitle": "In 1986...", "visual_prompt": "A Soviet nuclear '
+            'power plant control room at night, dim red warning lights, tense '
+            'atmosphere, cinematic, vertical composition"}]'
+        )
+
     return (
         "Ти сценарист коротких вертикальних відео (YouTube Shorts/TikTok). "
         f"Напиши текст озвучки {language_instruction} для відео на тему: \"{topic}\". "
@@ -121,17 +168,8 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Остання сцена - короткий висновок і заклик підписатись. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
         "Для кожної сцени поверни ТРИ поля:\n"
-        "- voice_text - текст для озвучки голосом. Усі числа тут пиши "
-        "словами, не цифрами, у правильній граматичній формі за "
-        "контекстом (наприклад: «333» -> «триста тридцять три», але "
-        "«у 333 році» -> «у триста тридцять третьому році», "
-        "«5 хвилин» -> «п'ять хвилин»).\n"
-        "- subtitle - ТОЧНО ТОЙ САМИЙ текст, слово в слово, що й "
-        "voice_text, БЕЗ жодних перефразувань, синонімів чи інших слів - "
-        "єдина дозволена відмінність: числа тут пиши звичайними цифрами "
-        "замість слів (наприклад «333», «1986 рік», «5 хвилин»), як їх "
-        "зазвичай пишуть у субтитрах. Не вигадуй нові слова чи "
-        "формулювання, яких немає у voice_text.\n"
+        f"{number_format_instruction}"
+        f"{subtitle_instruction}"
         "- visual_prompt - детальний ОПИС КАРТИНКИ англійською мовою для "
         "AI-генератора зображень: що саме має бути зображено в цій "
         "КОНКРЕТНІЙ сцені (предмет, місце дії, дія, атмосфера, освітлення). "
@@ -178,10 +216,7 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
         'формату {"voice_text": "...", "subtitle": "...", "visual_prompt": '
         '"..."}, без markdown і без пояснень. Приклад: '
-        '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
-        '"subtitle": "У 1986 році...", "visual_prompt": "A Soviet nuclear '
-        'power plant control room at night, dim red warning lights, tense '
-        'atmosphere, cinematic, vertical composition"}]'
+        f"{json_example}"
     )
 
 
