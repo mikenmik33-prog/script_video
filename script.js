@@ -128,6 +128,16 @@ async function loadResult(jobId) {
 function renderResult(data) {
   const { script, result } = data;
 
+  const voiceWarning = document.getElementById("result-voice-warning");
+  if (result.silent_voice_count > 0) {
+    voiceWarning.textContent =
+      `⚠️ ${result.silent_voice_count} із ${script.scenes.length} сцен озвучено тишею ` +
+      `(edge-tts не відповів) - перевірте аудіофайли нижче перед монтажем.`;
+    voiceWarning.hidden = false;
+  } else {
+    voiceWarning.hidden = true;
+  }
+
   document.getElementById("result-full-text").textContent = script.full_text;
 
   const scenesList = document.getElementById("result-scenes");

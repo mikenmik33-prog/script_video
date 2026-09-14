@@ -16,7 +16,6 @@
 
 import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
 
 from backend import ai
 
@@ -24,11 +23,6 @@ SAMPLE_RATE = 44100
 
 # невелика пауза після кожної репліки, щоб озвучка не звучала "впритул"
 SCENE_PADDING_SECONDS = 0.3
-
-# скільки озвучок генерувати одночасно - edge-tts теж мережевий виклик,
-# паралелізація скорочує загальний час run_pipeline (див. коментар у
-# scene_generator.MAX_PARALLEL_IMAGE_REQUESTS)
-MAX_PARALLEL_VOICE_REQUESTS = 3
 
 
 def _run_ffmpeg(args: list):
@@ -80,40 +74,44 @@ def _apply_end_padding(path: str, padding_seconds: float):
     os.replace(padded_path, path)
 
 
-def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk") -> str:
+def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk") -> bool:
     """Створює аудіофайл озвучки для однієї сцени та оновлює scene["duration"]
-    реальною тривалістю цього файлу (озвучка + невелика пауза)."""
+    реальною тривалістю цього файлу (озвучка + невелика пауза).
+
+    Повертає True, якщо це РЕАЛЬНА озвучка, або False, якщо edge-tts не
+    вдався і сцену довелось заповнити тишею (виклик має повідомити про
+    це користувачу - раніше такий збій губився тихо в логах сервера)."""
     ai_result = ai.generate_voice_with_ai(scene["voice_text"], output_path, language)
     if ai_result is None:
         _generate_silent_placeholder(scene["duration"], output_path)
+        succeeded = False
     else:
         # тривалість реальної озвучки наперед невідома - додаємо
         # відступ окремим (єдиним) проходом
         _apply_end_padding(output_path, SCENE_PADDING_SECONDS)
+        succeeded = True
 
     scene["duration"] = round(_probe_duration_seconds(output_path), 2)
-    return output_path
+    return succeeded
 
 
-def generate_all_voices(scenes: list, output_dir: str, language: str = "uk") -> list:
+def generate_all_voices(scenes: list, output_dir: str, language: str = "uk") -> tuple:
     """Генерує аудіофайли озвучки для всіх сцен (мутує scene["duration"]
-    кожної сцени реальною тривалістю). Повертає список шляхів (у порядку сцен).
+    кожної сцени реальною тривалістю). Повертає (шляхи, кількість_сцен_із_тишею).
 
-    Сцени озвучуються паралельно (до MAX_PARALLEL_VOICE_REQUESTS
-    одночасно) - кожна мутує лише свій власний scene-словник, тому
-    паралельний запис безпечний."""
+    Навмисно ПОСЛІДОВНО, не паралельно - на відміну від картинок
+    (scene_generator), кілька одночасних WebSocket-з'єднань до edge-tts
+    виявились ненадійними (запит тихо провалювався, і сцена без жодної
+    помилки в UI отримувала беззвучну заглушку замість реального
+    голосу). Озвучка й так відносно швидка порівняно з картинками,
+    тому послідовність тут не критична для загального часу."""
     os.makedirs(output_dir, exist_ok=True)
-    paths = [None] * len(scenes)
-
-    def _generate_one(index_and_scene):
-        index, scene = index_and_scene
+    paths = []
+    silent_count = 0
+    for scene in scenes:
         filename = f"voice_{scene['scene']:02d}.mp3"
         path = os.path.join(output_dir, filename)
-        generate_voice_for_scene(scene, path, language)
-        return index, path
-
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_VOICE_REQUESTS) as executor:
-        for index, path in executor.map(_generate_one, enumerate(scenes)):
-            paths[index] = path
-
-    return paths
+        if not generate_voice_for_scene(scene, path, language):
+            silent_count += 1
+        paths.append(path)
+    return paths, silent_count

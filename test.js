@@ -10,6 +10,7 @@ const scenesList = document.getElementById("scenes-list");
 const finalizePanel = document.getElementById("finalize-panel");
 const finalizeButton = document.getElementById("finalize-button");
 const finalizeError = document.getElementById("finalize-error");
+const finalizeVoiceWarning = document.getElementById("finalize-voice-warning");
 const finalizeStatus = document.getElementById("finalize-status");
 const finalizeFiles = document.getElementById("finalize-files");
 
@@ -395,6 +396,7 @@ function addFinalizeFileLink(label, url) {
 
 async function handleFinalizeClick() {
   clearError(finalizeError);
+  finalizeVoiceWarning.hidden = true;
   finalizeFiles.innerHTML = "";
 
   const cards = Array.from(scenesList.children);
@@ -424,6 +426,12 @@ async function handleFinalizeClick() {
       }
       const data = await statusResponse.json();
       if (data.status === "done") {
+        if (data.silent_voice_count > 0) {
+          finalizeVoiceWarning.textContent =
+            `⚠️ ${data.silent_voice_count} із ${data.voice_files.length} сцен озвучено тишею ` +
+            `(edge-tts не відповів) - перевірте аудіофайли перед монтажем.`;
+          finalizeVoiceWarning.hidden = false;
+        }
         addFinalizeFileLink("Субтитри (SRT)", data.subtitles_url);
         data.voice_files.forEach((url, index) => {
           addFinalizeFileLink(`Аудіо сцени ${index + 1}`, url);

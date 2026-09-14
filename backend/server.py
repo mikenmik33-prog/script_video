@@ -280,7 +280,7 @@ def run_pipeline(job_id: str):
         _set_stage(job, "visual", "done")
 
         _set_stage(job, "voice", "active")
-        voice_files = voice_generator.generate_all_voices(scenes, audio_dir, job["language"])
+        voice_files, silent_voice_count = voice_generator.generate_all_voices(scenes, audio_dir, job["language"])
         _set_stage(job, "voice", "done")
 
         _set_stage(job, "subtitles", "active")
@@ -301,6 +301,7 @@ def run_pipeline(job_id: str):
             "subtitles_url": f"/output/{job_id}/subtitles.srt",
             "scene_images": [f"/output/{job_id}/scenes/{os.path.basename(p)}" for p in scene_images],
             "voice_files": [f"/output/{job_id}/audio/{os.path.basename(p)}" for p in voice_files],
+            "silent_voice_count": silent_voice_count,
         }
     except Exception as exc:  # локальний прототип: показуємо причину користувачу в UI
         job["status"] = "error"
@@ -545,7 +546,7 @@ def _run_finalize_job(job_id: str, scene_inputs: list, language: str):
             for i, item in enumerate(scene_inputs, start=1)
         ]
 
-        voice_files = voice_generator.generate_all_voices(scenes, audio_dir, language)
+        voice_files, silent_voice_count = voice_generator.generate_all_voices(scenes, audio_dir, language)
 
         srt_path = os.path.join(job_dir, "subtitles.srt")
         subtitles.generate_srt(scenes, srt_path)
@@ -553,6 +554,7 @@ def _run_finalize_job(job_id: str, scene_inputs: list, language: str):
         job["status"] = "done"
         job["voice_files"] = [f"/output/_test/final/{job_id}/audio/{os.path.basename(p)}" for p in voice_files]
         job["subtitles_url"] = f"/output/_test/final/{job_id}/subtitles.srt"
+        job["silent_voice_count"] = silent_voice_count
     except Exception as exc:
         job["status"] = "error"
         job["error"] = str(exc)
@@ -564,7 +566,10 @@ def test_finalize_video(request: FinalizeRequest, background_tasks: BackgroundTa
         raise HTTPException(400, "Немає сцен для озвучки")
 
     job_id = uuid.uuid4().hex[:10]
-    finalize_jobs[job_id] = {"status": "processing", "voice_files": None, "subtitles_url": None, "error": None}
+    finalize_jobs[job_id] = {
+        "status": "processing", "voice_files": None, "subtitles_url": None,
+        "error": None, "silent_voice_count": None,
+    }
     background_tasks.add_task(_run_finalize_job, job_id, request.scenes, request.language)
     return {"job_id": job_id}
 
