@@ -436,12 +436,12 @@ button#submit-button:disabled {
   cursor: not-allowed;
 }
 
-.test-buttons-row button.danger-button {
-  background: var(--error);
+.danger-button {
+  background: var(--error) !important;
 }
 
-.test-buttons-row button.danger-button:hover:not(:disabled) {
-  background: #ff8a8a;
+.danger-button:hover:not(:disabled) {
+  background: #ff8a8a !important;
 }
 
 .test-status {

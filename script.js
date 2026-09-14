@@ -194,9 +194,19 @@ function createSceneVideoCard(scene, imageUrl) {
   img.src = imageUrl;
   card.appendChild(img);
 
+  const promptLabel = document.createElement("label");
+  promptLabel.textContent = "Промт для руху (можна дописати опис дії/камери):";
+  card.appendChild(promptLabel);
+
+  const promptInput = document.createElement("textarea");
+  promptInput.className = "test-prompt-input";
+  promptInput.value = scene.visual_prompt;
+  promptInput.rows = 3;
+  card.appendChild(promptInput);
+
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "test-continue-button";
+  button.className = "test-continue-button danger-button";
   button.textContent = "🎬 Оживити сцену (fal.ai, платно)";
   card.appendChild(button);
 
@@ -224,7 +234,7 @@ function createSceneVideoCard(scene, imageUrl) {
       const response = await fetch("/api/test/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_data: imageData, visual_prompt: scene.visual_prompt }),
+        body: JSON.stringify({ image_data: imageData, visual_prompt: promptInput.value }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
