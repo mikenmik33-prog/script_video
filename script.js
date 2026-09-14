@@ -128,9 +128,6 @@ async function loadResult(jobId) {
 function renderResult(data) {
   const { script, result } = data;
 
-  const video = document.getElementById("result-video");
-  video.src = result.video_url;
-
   document.getElementById("result-full-text").textContent = script.full_text;
 
   const scenesList = document.getElementById("result-scenes");
@@ -143,7 +140,6 @@ function renderResult(data) {
 
   const filesList = document.getElementById("result-files");
   filesList.innerHTML = "";
-  addFileLink(filesList, "Готове відео (MP4)", result.video_url);
   addFileLink(filesList, "Сценарій (JSON)", result.script_url);
   addFileLink(filesList, "Субтитри (SRT)", result.subtitles_url);
   result.scene_images.forEach((url, index) => {

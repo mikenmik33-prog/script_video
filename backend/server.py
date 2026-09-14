@@ -1,8 +1,15 @@
 """
 FastAPI backend для AI Video Generator (DEMO-режим).
 
-Реалізує повний конвеєр:
-тема -> сценарій -> сцени -> візуал -> озвучка -> субтитри -> монтаж -> MP4.
+Реалізує конвеєр підготовки матеріалів:
+тема -> сценарій -> сцени -> візуал -> озвучка -> субтитри -> файли.
+
+Автоматичний монтаж (FFmpeg) прибрано з основного пайплайна - він був
+найважчим CPU-навантаженням і найчастішою причиною примусових рестартів
+на слабкому сервері. Сайт видає готові матеріали (картинки сцен, аудіо
+озвучки, .srt субтитри, script.json), а фінальний монтаж користувач
+робить сам у будь-якому відеоредакторі. (editor.build_video лишається
+доступним для окремої функції "Завершити повне відео" на /test.)
 
 Запуск (з кореня проєкту):
     uvicorn backend.server:app --reload
@@ -41,7 +48,7 @@ TEST_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "_test")
 STATE_DIR = os.path.join(BASE_DIR, "state")
 
 ALLOWED_DURATIONS = (30, 60, 90)
-STAGE_ORDER = ["script", "scenes", "visual", "voice", "subtitles", "editing", "export"]
+STAGE_ORDER = ["script", "scenes", "visual", "voice", "subtitles", "export"]
 
 # Тестова панель (/test) не має власного очищення - без цього файли з
 # кожного кліку "перегенерувати" накопичувались би на диску назавжди,
@@ -233,8 +240,8 @@ def _set_stage(job: dict, stage: str, status: str):
 def _make_stage_progress_callback(job: dict, stage: str):
     """Повертає функцію(fraction: 0..1), яка плавно рухає job["progress"]
     УСЕРЕДИНІ одного етапу (за номером етапу в STAGE_ORDER) - щоб під час
-    довгих кроків (найдовший - монтаж) відсоток не "завис", а помітно
-    рухався, навіть на дуже слабкому CPU безкоштовних хостингів."""
+    довгих кроків (генерація картинок сцен) відсоток не "завис", а
+    помітно рухався, навіть на дуже слабкому CPU безкоштовних хостингів."""
     stage_index = STAGE_ORDER.index(stage)
     stage_span = 100 / len(STAGE_ORDER)
     base_progress = stage_index * stage_span
@@ -256,7 +263,6 @@ def run_pipeline(job_id: str):
     job_dir = os.path.join(OUTPUT_DIR, job_id)
     scenes_dir = os.path.join(job_dir, "scenes")
     audio_dir = os.path.join(job_dir, "audio")
-    work_dir = os.path.join(job_dir, "work")
 
     try:
         _set_stage(job, "script", "active")
@@ -284,19 +290,6 @@ def run_pipeline(job_id: str):
         subtitles.generate_srt(scenes, srt_path)
         _set_stage(job, "subtitles", "done")
 
-        _set_stage(job, "editing", "active")
-        final_video_path = os.path.join(job_dir, "final.mp4")
-        editor.build_video(
-            scenes=scenes,
-            scene_images=scene_images,
-            voice_files=voice_files,
-            work_dir=work_dir,
-            music_dir=MUSIC_DIR,
-            output_path=final_video_path,
-            progress_callback=_make_stage_progress_callback(job, "editing"),
-        )
-        _set_stage(job, "editing", "done")
-
         _set_stage(job, "export", "active")
         script_path = os.path.join(job_dir, "script.json")
         with open(script_path, "w", encoding="utf-8") as f:
@@ -306,7 +299,6 @@ def run_pipeline(job_id: str):
         job["status"] = "done"
         job["progress"] = 100
         job["result"] = {
-            "video_url": f"/output/{job_id}/final.mp4",
             "script_url": f"/output/{job_id}/script.json",
             "subtitles_url": f"/output/{job_id}/subtitles.srt",
             "scene_images": [f"/output/{job_id}/scenes/{os.path.basename(p)}" for p in scene_images],
