@@ -112,19 +112,27 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
 
     scenes = []
     for index, (texts, scene_duration) in enumerate(zip(scene_texts, durations), start=1):
-        scenes.append({
+        scene = {
             "scene": index,
             "duration": scene_duration,
             "voice_text": texts["voice_text"],
             "visual_prompt": texts["visual_prompt"],
             "subtitle": texts["subtitle"],
             "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
-        })
+        }
+        if "translation_uk" in texts:
+            scene["translation_uk"] = texts["translation_uk"]
+        scenes.append(scene)
 
-    return {
+    result = {
         "topic": topic,
         "language": language,
         "duration": duration,
         "full_text": " ".join(s["voice_text"] for s in scenes),
         "scenes": scenes,
     }
+    # переклад для показу на сторінці - лише коли сценарій НЕ українською
+    # (не впливає на озвучку/субтитри, ті лишаються обраною мовою)
+    if language != "uk" and all("translation_uk" in s for s in scenes):
+        result["full_text_uk"] = " ".join(s["translation_uk"] for s in scenes)
+    return result

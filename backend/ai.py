@@ -137,6 +137,9 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
             'power plant control room at night, dim red warning lights, tense '
             'atmosphere, cinematic, vertical composition"}]'
         )
+        # сценарій і так українською - окремий переклад не потрібен
+        translation_instruction = ""
+        translation_field_example = ""
     else:
         number_format_instruction = (
             "- voice_text - the narration text. ALL numbers here must be "
@@ -158,8 +161,19 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
             '[{"voice_text": "In nineteen eighty-six...", '
             '"subtitle": "In 1986...", "visual_prompt": "A Soviet nuclear '
             'power plant control room at night, dim red warning lights, tense '
-            'atmosphere, cinematic, vertical composition"}]'
+            'atmosphere, cinematic, vertical composition", '
+            '"translation_uk": "У тисяча дев\'ятсот вісімдесят шостому році..."}]'
         )
+        # сценарій НЕ українською - додатково просимо переклад кожної
+        # репліки українською лише для показу користувачу на сторінці
+        # (на синтез голосу чи субтитри це не впливає - там і далі мова
+        # voice_text/subtitle, обрана користувачем)
+        translation_instruction = (
+            "- translation_uk - переклад ЦЬОГО voice_text українською "
+            "мовою, лише для ознайомлення (не впливає на озвучку чи "
+            "субтитри).\n"
+        )
+        translation_field_example = ', "translation_uk": "..."'
 
     return (
         "Ти сценарист коротких вертикальних відео (YouTube Shorts/TikTok). "
@@ -171,6 +185,7 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Для кожної сцени поверни ТРИ поля:\n"
         f"{number_format_instruction}"
         f"{subtitle_instruction}"
+        f"{translation_instruction}"
         "- visual_prompt - детальний ОПИС КАРТИНКИ англійською мовою для "
         "AI-генератора зображень: що саме має бути зображено в цій "
         "КОНКРЕТНІЙ сцені (предмет, місце дії, дія, атмосфера, освітлення). "
@@ -231,11 +246,24 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "\"a plane\" і окремо ще раз натяком на другий літак чи крило "
         "збоку) - двозначні чи повторювані згадки одного предмета "
         "змушують генератор зображень домальовувати зайву копію цього "
-        "предмета в кадрі.\n"
+        "предмета в кадрі. "
+        "Візуал МАЄ ТОЧНО відповідати конкретним деталям з voice_text, а не "
+        "узагальненому предмету тієї ж категорії - якщо voice_text називає "
+        "конкретний тип/модель/призначення предмета (наприклад «військовий "
+        "бомбардувальник ВМС», «вантажний корабель», «винищувач») - на "
+        "картинці має бути саме він (військовий літак з відповідними "
+        "розпізнавальними ознаками, а НЕ звичайний цивільний пасажирський "
+        "літак типу Boeing/Airbus); якщо називається просто «літак» без "
+        "уточнень - тоді підійде і цивільний. Якщо voice_text згадує "
+        "конкретний рік/епоху - все на картинці (одяг, транспорт, "
+        "технології, архітектура) має відповідати САМЕ ТІЙ епосі, а не "
+        "сучасності (наприклад «у 1943 році» -> техніка й форма часів "
+        "Другої світової, а не сучасна); якщо йдеться про сучасність чи рік "
+        "не вказано - показуй сучасні речі.\n"
         f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
         'формату {"voice_text": "...", "subtitle": "...", "visual_prompt": '
-        '"..."}, без markdown і без пояснень. Приклад: '
-        f"{json_example}"
+        f'"..."{translation_field_example}}}, без markdown і без пояснень. '
+        f"Приклад: {json_example}"
     )
 
 
@@ -281,11 +309,17 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
             voice_text = str(scene["voice_text"]).strip()
             subtitle = str(scene.get("subtitle", voice_text)).strip()
             visual_prompt = str(scene.get("visual_prompt", topic)).strip()
-            result.append({
+            entry = {
                 "voice_text": voice_text,
                 "subtitle": subtitle,
                 "visual_prompt": visual_prompt,
-            })
+            }
+            if language != "uk":
+                # переклад лише для показу на сторінці - якщо Gemini з
+                # якоїсь причини не повернув поле, показуємо оригінал,
+                # а не ламаємо весь результат
+                entry["translation_uk"] = str(scene.get("translation_uk", voice_text)).strip()
+            result.append(entry)
         return result
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.warning("Gemini API недоступний (%s), використовуємо DEMO-шаблон", exc)

@@ -140,6 +140,14 @@ function renderResult(data, jobId) {
 
   document.getElementById("result-full-text").textContent = script.full_text;
 
+  const fullTextUk = document.getElementById("result-full-text-uk");
+  if (script.full_text_uk) {
+    fullTextUk.textContent = `Переклад укр.: ${script.full_text_uk}`;
+    fullTextUk.hidden = false;
+  } else {
+    fullTextUk.hidden = true;
+  }
+
   const scenesList = document.getElementById("result-scenes");
   scenesList.innerHTML = "";
   script.scenes.forEach((scene) => {

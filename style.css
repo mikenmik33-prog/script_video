@@ -190,6 +190,14 @@ select:focus {
   outline: 2px solid var(--accent);
 }
 
+/* браузер малює <option> окремо від <select> і за замовчуванням ігнорує
+   темну тему сторінки (білий фон, чорний текст) - явно задаємо ті самі
+   кольори, що й у select, інакше випадний список випадає з дизайну */
+select option {
+  background: var(--input-bg);
+  color: var(--text);
+}
+
 .radio-row {
   display: flex;
   gap: 16px;
