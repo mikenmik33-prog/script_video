@@ -6,14 +6,16 @@ AI-сервіси (наприклад платна генерація зобра
 
 - Сценарій (текст + промти сцен): Gemini API (потрібен GEMINI_API_KEY,
   безкоштовний).
-- Візуал: Hugging Face Inference API (модель FLUX.1-schnell) -
-  безкоштовно, без водяного знаку (це прямий вивід моделі, без
-  сервісного логотипу), потрібен безкоштовний HUGGINGFACE_API_KEY.
-  Резервного варіанту свідомо немає - Pollinations.ai пробували
-  раніше, але він завжди додає водяний знак (навіть з токеном), тому
-  чесна відмова (тестове зображення) краща за тихе підсовування
-  картинки з чужим логотипом. Якщо Hugging Face недоступний -
-  generate_visual_with_ai() повертає None.
+- Візуал: fal.ai (модель FLUX.1 [schnell], той самий FAL_API_KEY, що
+  й для відео) - платно, копійки за картинку (~$0.003-0.025). Раніше
+  тут був безкоштовний Hugging Face, але той має місячну квоту, яка
+  регулярно вичерпувалась (HTTP 402) - користувач свідомо обрав
+  перейти повністю на платний fal.ai замість очікування щомісячного
+  оновлення ліміту. Pollinations.ai як резерв теж пробували раніше,
+  але він завжди додає водяний знак (навіть з токеном) - тому
+  прибраний назавжди. Якщо fal.ai недоступний -
+  generate_visual_with_ai() повертає None (тоді сцена отримує тестову
+  заглушку).
   Примітка: генерація зображень безпосередньо через Gemini ("Nano
   Banana") існує, але на безкоштовному тарифі Gemini її квота
   дорівнює нулю (потрібен платний білінг).
@@ -43,7 +45,6 @@ import base64
 import json
 import logging
 import os
-import random
 import urllib.error
 import urllib.request
 
@@ -63,24 +64,24 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 FAL_API_KEY = os.getenv("FAL_API_KEY", "").strip()
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
 
 # fal.ai - агрегатор AI-моделей з оплатою за фактичне використання
-# (queue-based API: POST у чергу -> опитування статусу -> результат)
+FAL_SYNC_BASE = "https://fal.run"  # синхронні (швидкі) моделі - картинки
+# queue-based API: POST у чергу -> опитування статусу -> результат -
+# для повільніших моделей (відео)
 FAL_QUEUE_BASE = "https://queue.fal.run"
-FAL_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
+FAL_IMAGE_MODEL = "fal-ai/flux/schnell"
+FAL_IMAGE_TIMEOUT_SECONDS = 60
+FAL_VIDEO_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
 # скільки максимум чекати результату - рахує викликач (server.py) за
 # часом від моменту постановки в чергу, порівнюючи із submitted_at
 FAL_MAX_WAIT_SECONDS = 180
 
-IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з editor.py/scene_generator.py
-
-HUGGINGFACE_MODEL = "black-forest-labs/FLUX.1-schnell"
-HUGGINGFACE_TIMEOUT_SECONDS = 60
+IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з scene_generator.py
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -273,50 +274,54 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
         return None
 
 
-def _generate_image_with_huggingface(prompt: str, output_path: str):
-    """Генерує зображення через офіційну бібліотеку huggingface_hub.
-
-    Пряме звернення до api-inference.huggingface.co більше не
-    підтримується (Hugging Face перейшли на систему Inference
-    Providers, де запит автоматично маршрутизується до одного з
-    партнерів - fal.ai, replicate тощо) - тому використовуємо їхній
-    офіційний клієнт замість "сирого" HTTP-запиту, щоб не залежати
-    від внутрішньої логіки маршрутизації, яка може змінюватись.
+def _generate_image_with_fal(prompt: str, output_path: str):
+    """Генерує зображення через fal.ai (модель FLUX.1 [schnell]) -
+    синхронний ендпоінт (fal.run, не queue.fal.run - ця модель швидка,
+    результат готовий одразу в тілі відповіді, без опитування статусу).
 
     Кидає виняток при збої (ловить викликач generate_visual_with_ai)."""
-    from huggingface_hub import InferenceClient
+    submit_payload = json.dumps({
+        "prompt": prompt,
+        "image_size": "portrait_16_9",  # найближчий до вертикального 9:16 пресет
+    }).encode("utf-8")
 
-    client = InferenceClient(token=HUGGINGFACE_API_KEY, timeout=HUGGINGFACE_TIMEOUT_SECONDS)
-    seed = random.randint(0, 2**31 - 1)
-    image = client.text_to_image(
-        prompt,
-        model=HUGGINGFACE_MODEL,
-        width=IMAGE_WIDTH,
-        height=IMAGE_HEIGHT,
-        seed=seed,
+    request = urllib.request.Request(
+        f"{FAL_SYNC_BASE}/{FAL_IMAGE_MODEL}",
+        data=submit_payload,
+        headers={**_fal_auth_headers(), "Content-Type": "application/json"},
+        method="POST",
     )
-    image.save(output_path)
+    with urllib.request.urlopen(request, timeout=FAL_IMAGE_TIMEOUT_SECONDS) as response:
+        result_body = json.loads(response.read().decode("utf-8"))
+
+    image_url = result_body["images"][0]["url"]
+    with urllib.request.urlopen(image_url, timeout=30) as response:
+        image_bytes = response.read()
+    with open(output_path, "wb") as f:
+        f.write(image_bytes)
     return output_path
 
 
 def generate_visual_with_ai(prompt: str, output_path: str):
-    """Генерує зображення сцени через Hugging Face Inference API
-    (безкоштовно, без водяного знаку).
+    """Генерує зображення сцени через fal.ai (модель FLUX.1 [schnell]) -
+    платно, копійки за картинку (~$0.003-0.025).
 
-    Резервний варіант Pollinations.ai свідомо прибрано - він завжди
-    додавав водяний знак навіть з токеном, тому "запасний" результат
-    був гіршим за чесну відмову. Якщо Hugging Face недоступний -
-    повертає None, і scene_generator створює тестове кольорове
-    зображення (це одразу видно й зрозуміло, на відміну від тихого
-    підсовування картинки з чужим водяним знаком).
+    Резервні варіанти прибрано назавжди: Hugging Face мав місячну
+    квоту, яка регулярно вичерпувалась (HTTP 402); Pollinations.ai
+    завжди додавав водяний знак навіть з токеном. Якщо fal.ai
+    недоступний - повертає None, і scene_generator створює тестове
+    кольорове зображення.
     """
-    if not HUGGINGFACE_API_KEY:
+    if not FAL_API_KEY:
         return None
 
     try:
-        return _generate_image_with_huggingface(prompt, output_path)
+        return _generate_image_with_fal(prompt, output_path)
+    except urllib.error.HTTPError as exc:
+        _log_fal_http_error(exc, "генерація картинки")
+        return None
     except Exception as exc:
-        logger.warning("Hugging Face недоступний (%s), використовуємо тестове зображення", exc)
+        logger.warning("fal.ai недоступний (%s), використовуємо тестове зображення", exc)
         return None
 
 
@@ -377,7 +382,7 @@ def submit_video_job(image_path: str, prompt: str):
     if not FAL_API_KEY:
         return None
 
-    submit_url = f"{FAL_QUEUE_BASE}/{FAL_MODEL}"
+    submit_url = f"{FAL_QUEUE_BASE}/{FAL_VIDEO_MODEL}"
 
     try:
         with open(image_path, "rb") as f:
