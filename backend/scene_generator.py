@@ -96,16 +96,15 @@ def _draw_centered_lines(draw: ImageDraw.ImageDraw, lines: list, font: ImageFont
 def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
     """Створює одне зображення для сцени і зберігає його на диск."""
     style_suffix = STYLE_PROMPT_SUFFIXES.get(style, STYLE_PROMPT_SUFFIXES[DEFAULT_STYLE])
-    # "cinematic composition, professional lighting" і фотореалізм
-    # додаються завжди, незалежно від обраного стилю - кожна картинка
-    # має виглядати як реальна фотографія/кінокадр, а не цифровий
-    # малюнок/арт, а стиль лише додає свій відтінок зверху
+    # Короткий, невеликий набір технічних вимог додається завжди, незалежно
+    # від обраного стилю - кожна картинка має виглядати як реальна
+    # фотографія/кінокадр, а не цифровий малюнок/арт, а стиль лише додає
+    # свій відтінок зверху. Свідомо коротко - забагато доданих слів (навіть
+    # технічних) підвищує шанс, що генератор домалює зайву непотрібну
+    # деталь, якої немає в самому visual_prompt.
     full_prompt = (
-        f"{scene['visual_prompt']}, photorealistic, realistic photography, shot on camera, "
-        f"cinematic composition, professional lighting, sharp focus, highly detailed, "
-        f"clearly visible well-lit main subject, {style_suffix}, "
-        f"vertical 9:16, no text, no watermark, not a painting, not illustration, not digital art, "
-        f"not overly dark, not a silhouette"
+        f"{scene['visual_prompt']}, photorealistic film still, well-lit, sharp focus, "
+        f"{style_suffix}, vertical 9:16, no text, no watermark"
     )
 
     ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
