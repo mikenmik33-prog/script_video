@@ -122,10 +122,10 @@ async function loadResult(jobId) {
     throw new Error("Не вдалося завантажити результат");
   }
   const data = await response.json();
-  renderResult(data);
+  renderResult(data, jobId);
 }
 
-function renderResult(data) {
+function renderResult(data, jobId) {
   const { script, result } = data;
 
   const voiceWarning = document.getElementById("result-voice-warning");
@@ -163,7 +163,7 @@ function renderResult(data) {
   sceneVideosList.innerHTML = "";
   result.scene_images.forEach((imageUrl, index) => {
     const scene = script.scenes[index];
-    sceneVideosList.appendChild(createSceneVideoCard(scene, imageUrl));
+    sceneVideosList.appendChild(createSceneVideoCard(scene, imageUrl, jobId));
   });
 
   resultPanel.hidden = false;
@@ -181,7 +181,7 @@ function blobToDataUrl(blob) {
 // Оживлення окремої сцени рухом через fal.ai (image-to-video) -
 // вибіркова платна дія для однієї конкретної сцени, лише за явним
 // підтвердженням.
-function createSceneVideoCard(scene, imageUrl) {
+function createSceneVideoCard(scene, imageUrl, jobId) {
   const card = document.createElement("div");
   card.className = "test-scene-card";
 
@@ -193,6 +193,57 @@ function createSceneVideoCard(scene, imageUrl) {
   img.className = "test-preview-image";
   img.src = imageUrl;
   card.appendChild(img);
+
+  // Перегенерація картинки сцени - щоб виправити невдалий/невідповідний
+  // темі результат ДО того, як з нього почнеться платне "Оживити сцену"
+  // (image-to-video завжди починається саме з цієї картинки).
+  const imagePromptLabel = document.createElement("label");
+  imagePromptLabel.textContent = "Промт картинки (можна відредагувати):";
+  card.appendChild(imagePromptLabel);
+
+  const imagePromptInput = document.createElement("textarea");
+  imagePromptInput.className = "test-prompt-input";
+  imagePromptInput.value = scene.visual_prompt;
+  imagePromptInput.rows = 3;
+  card.appendChild(imagePromptInput);
+
+  const regenerateButton = document.createElement("button");
+  regenerateButton.type = "button";
+  regenerateButton.className = "test-continue-button";
+  regenerateButton.textContent = "🔄 Перегенерувати фото (fal.ai, платно)";
+  card.appendChild(regenerateButton);
+
+  const regenerateStatus = document.createElement("p");
+  regenerateStatus.className = "test-status";
+  card.appendChild(regenerateStatus);
+
+  regenerateButton.addEventListener("click", async () => {
+    regenerateButton.disabled = true;
+    regenerateStatus.textContent = "Генеруємо нову картинку...";
+    try {
+      const response = await fetch("/api/regenerate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: jobId,
+          scene_number: scene.scene,
+          visual_prompt: imagePromptInput.value,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Не вдалося перегенерувати картинку");
+      }
+      const { image_url: newImageUrl } = await response.json();
+      img.src = newImageUrl;
+      imageUrl = newImageUrl;
+      regenerateStatus.textContent = "Готово.";
+    } catch (err) {
+      regenerateStatus.textContent = `Помилка: ${err.message}`;
+    } finally {
+      regenerateButton.disabled = false;
+    }
+  });
 
   const promptLabel = document.createElement("label");
   promptLabel.textContent = "Промт для руху (можна дописати опис дії/камери):";

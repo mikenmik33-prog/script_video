@@ -360,6 +360,34 @@ def get_result(job_id: str):
     }
 
 
+class RegenerateImageRequest(BaseModel):
+    job_id: str
+    scene_number: int
+    visual_prompt: str
+
+
+@app.post("/api/regenerate-image")
+def regenerate_scene_image(request: RegenerateImageRequest):
+    """Перегенерує картинку однієї сцени за (можливо відредагованим)
+    промтом - щоб користувач міг виправити невдале зображення ДО того,
+    як натисне платне «Оживити сцену» (image-to-video), яке саме з цієї
+    картинки й починається."""
+    job = jobs.get(request.job_id)
+    if job is None or job["status"] != "done":
+        raise HTTPException(404, "Задачу не знайдено або вона ще не завершена")
+
+    scenes_dir = os.path.join(OUTPUT_DIR, request.job_id, "scenes")
+    output_path = os.path.join(scenes_dir, f"scene_{request.scene_number:02d}.png")
+
+    fake_scene = {"visual_prompt": request.visual_prompt, "scene": request.scene_number}
+    scene_generator.generate_scene_image(fake_scene, job["style"], output_path)
+
+    # cache-bust - той самий шлях файлу, інакше браузер показав би стару
+    # картинку з кешу замість щойно перегенерованої
+    image_url = f"/output/{request.job_id}/scenes/{os.path.basename(output_path)}?v={int(time.time())}"
+    return {"image_url": image_url}
+
+
 # --- Оживлення окремої сцени рухом через fal.ai (image-to-video) -----
 #
 # Викликається вибірково, для однієї обраної сцени за раз (кнопка
