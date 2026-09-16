@@ -224,6 +224,68 @@ select option {
   color: var(--text);
 }
 
+/* кастомний дропдаун мови - замінює нативний <select>, чий випадний
+   список малює ОС і CSS темної теми на нього не впливає */
+.custom-select {
+  position: relative;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.custom-select-trigger:focus,
+.custom-select-trigger[aria-expanded="true"] {
+  outline: 2px solid var(--accent);
+}
+
+.custom-select-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.custom-select-options {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.custom-select-options li {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.custom-select-options li:hover,
+.custom-select-options li.is-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 .radio-row {
   display: flex;
   gap: 16px;

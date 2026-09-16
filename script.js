@@ -27,6 +27,10 @@ const approveScriptButton = document.getElementById("approve-script-button");
 const scriptReviewStatus = document.getElementById("script-review-status");
 
 const languageSelect = document.getElementById("language");
+const languageSelectWrapper = document.getElementById("language-select");
+const languageSelectTrigger = document.getElementById("language-select-trigger");
+const languageSelectValue = languageSelectTrigger.querySelector(".custom-select-value");
+const languageSelectOptions = languageSelectWrapper.querySelector(".custom-select-options");
 const ideasList = document.getElementById("ideas-list");
 const ideasUpdated = document.getElementById("ideas-updated");
 const refreshIdeasButton = document.getElementById("refresh-ideas-button");
@@ -494,6 +498,66 @@ refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
 // перемикання мови одразу показує вже підготовлений список тієї мови
 // (без нового звернення до YouTube API - лише читання кешу).
 languageSelect.addEventListener("change", loadTrendingIdeas);
+
+// Кастомний дропдаун мови: керує лише виглядом, а фактичне значення
+// завжди зберігається в схованому нативному <select id="language">,
+// тому решта коду (відправка форми, запити трендів) працює без змін.
+function syncLanguageOptionUi(value) {
+  const option = languageSelectOptions.querySelector(`li[data-value="${value}"]`);
+  if (!option) return;
+
+  languageSelectValue.textContent = option.textContent;
+  languageSelectOptions.querySelectorAll("li").forEach((li) => {
+    const isActive = li.dataset.value === value;
+    li.classList.toggle("is-active", isActive);
+    li.setAttribute("aria-selected", String(isActive));
+  });
+}
+
+function selectLanguageOption(value) {
+  syncLanguageOptionUi(value);
+  languageSelect.value = value;
+  languageSelect.dispatchEvent(new Event("change"));
+}
+
+function closeLanguageOptions() {
+  languageSelectOptions.hidden = true;
+  languageSelectTrigger.setAttribute("aria-expanded", "false");
+}
+
+function openLanguageOptions() {
+  languageSelectOptions.hidden = false;
+  languageSelectTrigger.setAttribute("aria-expanded", "true");
+}
+
+languageSelectTrigger.addEventListener("click", () => {
+  if (languageSelectOptions.hidden) {
+    openLanguageOptions();
+  } else {
+    closeLanguageOptions();
+  }
+});
+
+languageSelectOptions.addEventListener("click", (event) => {
+  const option = event.target.closest("li[data-value]");
+  if (!option) return;
+  selectLanguageOption(option.dataset.value);
+  closeLanguageOptions();
+});
+
+document.addEventListener("click", (event) => {
+  if (!languageSelectWrapper.contains(event.target)) {
+    closeLanguageOptions();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeLanguageOptions();
+  }
+});
+
+syncLanguageOptionUi(languageSelect.value);
 
 loadTrendingIdeas();
 setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);

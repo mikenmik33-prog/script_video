@@ -34,11 +34,28 @@
           required
         />
 
-        <label for="language">Мова</label>
-        <select id="language" name="language">
+        <label id="language-label">Мова</label>
+        <select id="language" name="language" hidden aria-hidden="true" tabindex="-1">
           <option value="uk">Українська</option>
           <option value="en">English</option>
         </select>
+        <div class="custom-select" id="language-select">
+          <button
+            type="button"
+            class="custom-select-trigger"
+            id="language-select-trigger"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-labelledby="language-label"
+          >
+            <span class="custom-select-value">Українська</span>
+            <span class="custom-select-arrow" aria-hidden="true">▾</span>
+          </button>
+          <ul class="custom-select-options" role="listbox" tabindex="-1" hidden>
+            <li role="option" data-value="uk" aria-selected="true">Українська</li>
+            <li role="option" data-value="en" aria-selected="false">English</li>
+          </ul>
+        </div>
 
         <button type="submit" id="submit-button">Створити промт</button>
       </form>
