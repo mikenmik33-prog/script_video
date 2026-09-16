@@ -47,7 +47,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-astra").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano").strip()
 OPENAI_URL = "https://api.openai.com/v1/responses"
 OPENAI_TIMEOUT_SECONDS = 60
 
@@ -332,7 +332,6 @@ def _call_openai(prompt: str) -> str:
     payload = json.dumps({
         "model": OPENAI_MODEL,
         "input": prompt,
-        "tools": [{"type": "web_search_preview"}],
         "text": {
             "format": {
                 "type": "json_schema",
@@ -447,4 +446,3 @@ def generate_voice_with_ai(text: str, output_path: str, language: str):
     except Exception as exc:  # мережа/сервіс edge-tts можуть бути недоступні
         logger.warning("edge-tts недоступний: %s", exc)
         raise RuntimeError("Сервіс озвучки edge-tts недоступний. Спробуйте ще раз.") from exc
-

@@ -1,8 +1,8 @@
 """GPT-generated topic suggestions for the video generator.
 
-Suggestions are researched by GPT with web search and adapted to the selected
-audience and language. The UI shows ten refreshable ideas; clicking one copies
-its title into the topic field.
+Suggestions are adapted to the selected audience and language using the model's
+knowledge only. The UI shows ten refreshable ideas; clicking one copies its
+title into the topic field.
 """
 
 import json
@@ -20,7 +20,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-astra").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano").strip()
 OPENAI_URL = "https://api.openai.com/v1/responses"
 OPENAI_TIMEOUT_SECONDS = 60
 
@@ -73,12 +73,11 @@ def _build_ideas_prompt(language: str) -> str:
 Today is {today}. Create exactly {MAX_IDEAS} distinct topic ideas for
 {cfg['audience']}. Write every title and hook in {cfg['language']}.
 
-Focus on surprising verified facts, scientific discoveries, real human
-adventures, and understandable current events. Use web search to check that
-the core claim behind every idea is real and supported by reputable sources.
-Do not invent facts, fake discoveries, rumors, or unsupported numbers. Current
-events are allowed only when they are clear and genuinely interesting to this
-audience. Keep topics PG-13: no graphic violence, sexual content, hate,
+Focus on surprising facts, scientific discoveries, real human adventures, and
+understandable current events. Prefer plausible, well-known facts and do not
+invent details, fake discoveries, rumors, or unsupported numbers. Current events
+are allowed only when they are clear and genuinely interesting to this audience.
+Keep topics PG-13: no graphic violence, sexual content, hate,
 political persuasion, or risky clickbait.
 
 Return only a JSON object with an `ideas` array of exactly {MAX_IDEAS} items.
@@ -115,7 +114,6 @@ def _call_openai(prompt: str) -> str:
     payload = json.dumps({
         "model": OPENAI_MODEL,
         "input": prompt,
-        "tools": [{"type": "web_search_preview"}],
         "text": {"format": {
             "type": "json_schema",
             "name": "topic_ideas",
@@ -191,4 +189,3 @@ def start_background_refresh():
     for language in LANGUAGES:
         refresh_ideas(language)
     threading.Thread(target=_background_refresh_loop, daemon=True).start()
-
