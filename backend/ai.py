@@ -119,8 +119,7 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
             '"subtitle": "У 1986 році...", "camera_movement": "crash_zoom_in", '
             '"visual_prompt": "A Soviet nuclear power plant control room at '
             'night, dim red warning lights, tense atmosphere, cinematic, '
-            'vertical composition. The host character looks alarmed and '
-            'points at the control panel."}]'
+            'vertical composition."}]'
         )
         # сценарій і так українською - окремий переклад не потрібен
         translation_instruction = ""
@@ -147,8 +146,7 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
             '"subtitle": "In 1986...", "camera_movement": "crash_zoom_in", '
             '"visual_prompt": "A Soviet nuclear power plant control room at '
             'night, dim red warning lights, tense atmosphere, cinematic, '
-            'vertical composition. The host character looks alarmed and '
-            'points at the control panel.", '
+            'vertical composition.", '
             '"translation_uk": "У тисяча дев\'ятсот вісімдесят шостому році..."}]'
         )
         # сценарій НЕ українською - додатково просимо переклад кожної
@@ -229,15 +227,10 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "кадру, якість кінокадру (film still), а не проста ілюстрація. "
         "Головний обʼєкт сцени завжди має бути ЧІТКО ВИДНИЙ і ДОБРЕ "
         "ОСВІТЛЕНИЙ - уникай суцільного силуету, надмірної темряви чи "
-        "густого туману, які роблять обʼєкт нерозбірливим. У КОЖНІЙ сцені "
-        "візуальний промт МАЄ також описувати, що саме зараз робить "
-        "постійний персонаж-провідник відео (одне коротке речення "
-        "англійською: конкретна дія/поза/жест і вираз обличчя, що "
-        "відповідає змісту саме цієї репліки - наприклад \"the host "
-        "character points at it with excitement\" чи \"the host character "
-        "looks worried and covers his mouth\") - сам вигляд персонажа "
-        "визначає код застосунку, тут потрібна лише його дія в цій "
-        "конкретній сцені. visual_prompt "
+        "густого туману, які роблять обʼєкт нерозбірливим. visual_prompt "
+        "НЕ повинен містити жодного персонажа-провідника чи розповідача -"
+        " лише реалістичну сцену/фон без вигаданих людей, яких немає в "
+        "описі. visual_prompt "
         "може бути детальним (декілька речень - опиши предмет, місце дії, "
         "ключову дію, освітлення, атмосферу), АЛЕ кожна деталь має бути "
         "ОБҐРУНТОВАНА змістом сцени - не вигадуй додаткових персонажів, "

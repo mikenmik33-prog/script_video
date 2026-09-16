@@ -3,10 +3,17 @@
 
 Спочатку пробує реальну генерацію зображення через ai.py (fal.ai,
 модель FLUX.1 [schnell], за промтом visual_prompt від Gemini +
-кінематографічний суфікс + опис постійного персонажа-провідника нижче).
-Якщо запит не вдався (немає ключа, немає інтернету, сервіс недоступний),
-для сцени створюється тестове кольорове зображення 720x1280 з підписом -
-це дозволяє конвеєру працювати навіть повністю офлайн.
+кінематографічний суфікс нижче). Якщо запит не вдався (немає ключа,
+немає інтернету, сервіс недоступний), для сцени створюється тестове
+кольорове зображення 720x1280 з підписом - це дозволяє конвеєру
+працювати навіть повністю офлайн.
+
+Персонаж-провідник НЕ малюється на цих фото - фото навмисно чисто
+реалістичні (лише фон/сцена). Текстовий опис персонажа в промті
+виявився ненадійним - AI "губив" точний дизайн між різними
+генераціями. Користувач додає персонажа сам, візуально, як референс-
+фото в Google Flow під час оживлення сцени рухом - так Flow бачить
+точний вигляд персонажа, а не вгадує його з опису щоразу.
 """
 
 import os
@@ -37,27 +44,6 @@ GRADIENT_PALETTE = [(20, 24, 38), (44, 52, 84)]
 # _build_script_prompt() це раніше штовхало модель до майже чорних
 # силуетів у тумані/темряві замість чіткої, добре освітленої картинки
 CINEMATIC_SUFFIX = "cinematic film still, high detail, well-lit scene, clearly visible subject"
-
-# Постійний персонаж-провідник, який має з'являтися в КОЖНІЙ сцені
-# кожного відео, завжди з однаковим виглядом - AI сам малює й анімує
-# його (жодних процедурно намальованих заготовок), а точний повторюваний
-# текстовий опис у кожному промті - це і є "пам'ять" про його дизайн.
-# Що саме він робить у конкретній сцені дописує Gemini в кінці
-# visual_prompt (див. _build_script_prompt в ai.py).
-MASCOT_DESCRIPTION = (
-    "A simple hand-drawn 2D cartoon mascot character composited into the "
-    "photorealistic scene: a minimalist stick-figure with a plain circle "
-    "head, thin black outline, simple line body with straight arms and "
-    "legs, and a very simple but expressive face (two dot eyes, simple "
-    "eyebrows, a simple mouth line showing emotion). He looks like a flat "
-    "sketch standing in front of or within the real photorealistic "
-    "background, clearly readable, always the same simple design. "
-    "IMPORTANT: only this one character is a drawn cartoon - everything "
-    "else in the image (background, environment, objects, people, "
-    "vehicles) must stay fully photorealistic, real photography, NOT "
-    "cartoon or illustrated - the contrast between the drawn character "
-    "and the real world around him is the whole point."
-)
 
 
 def _gradient_background(scene_index: int) -> Image.Image:
@@ -112,7 +98,7 @@ def generate_scene_image(scene: dict, output_path: str) -> str:
     # деталь, якої немає в самому visual_prompt.
     full_prompt = (
         f"{scene['visual_prompt']}, photorealistic film still, well-lit, sharp focus, "
-        f"{CINEMATIC_SUFFIX}, vertical 9:16, no text, no watermark. {MASCOT_DESCRIPTION}"
+        f"{CINEMATIC_SUFFIX}, vertical 9:16, no text, no watermark"
     )
 
     ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
