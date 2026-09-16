@@ -24,6 +24,31 @@ body {
   font-family: "Segoe UI", Roboto, Arial, sans-serif;
 }
 
+/* Скролбар під темну тему - Firefox */
+* {
+  scrollbar-color: var(--panel-border) var(--bg);
+  scrollbar-width: thin;
+}
+
+/* Скролбар під темну тему - Chrome/Edge/Safari (webkit) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--panel-border);
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 .topbar {
   padding: 28px 40px 20px;
   border-bottom: 1px solid var(--panel-border);
@@ -56,8 +81,7 @@ body {
 }
 
 .ideas-panel,
-.script-review-panel,
-.photo-review-panel {
+.script-review-panel {
   margin: 24px 40px;
 }
 

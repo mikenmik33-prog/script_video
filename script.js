@@ -44,7 +44,7 @@ function clearFormError() {
 
 function setFormDisabled(disabled) {
   submitButton.disabled = disabled;
-  submitButton.textContent = disabled ? "Створення..." : "Створити відео";
+  submitButton.textContent = disabled ? "Створення..." : "Створити промт";
 }
 
 function resetStages() {
@@ -387,7 +387,7 @@ async function handleFormSubmit(event) {
 
 form.addEventListener("submit", handleFormSubmit);
 
-// --- Популярні ідеї (з YouTube) ---
+// --- Популярні відео (з YouTube) ---
 
 const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
 

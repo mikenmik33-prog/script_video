@@ -8,12 +8,11 @@
 <body>
   <header class="topbar">
     <h1>AI Video Generator</h1>
-    <p class="subtitle">Ідея → сценарій+озвучка → (затвердити) → готові файли</p>
   </header>
 
   <section class="panel ideas-panel">
     <div class="ideas-header">
-      <h2>Популярні ідеї (з YouTube)</h2>
+      <h2>Популярні відео (з YouTube)</h2>
       <button type="button" id="refresh-ideas-button" class="refresh-button">↻ Оновити</button>
     </div>
     <p id="ideas-updated" class="ideas-updated"></p>
@@ -24,9 +23,9 @@
 
   <main class="layout">
     <section class="panel form-panel">
-      <h2>Нове відео</h2>
+      <h2>Новий промт</h2>
       <form id="generate-form">
-        <label for="topic">Тема відео</label>
+        <label for="topic">Тема для промту</label>
         <input
           type="text"
           id="topic"
@@ -57,7 +56,7 @@
           <option value="en">English</option>
         </select>
 
-        <button type="submit" id="submit-button">Створити відео</button>
+        <button type="submit" id="submit-button">Створити промт</button>
       </form>
 
       <p id="form-error" class="error-message" hidden></p>
@@ -105,12 +104,6 @@
 
   <section class="panel script-review-panel" id="script-review-panel" hidden>
     <h2>Перегляньте сценарій</h2>
-    <p class="subtitle">
-      Відредагуйте текст чи промт будь-якої сцени, якщо потрібно
-      (озвучка для зміненого тексту перегенерується автоматично), і
-      натисніть «Затвердити сценарій» - після цього підготуються
-      субтитри й фінальні файли.
-    </p>
     <p id="script-review-voice-warning" class="error-message" hidden></p>
     <div id="script-review-scenes" class="test-scenes-list"></div>
     <button type="button" id="approve-script-button" class="test-continue-button">Затвердити сценарій</button>
