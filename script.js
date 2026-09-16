@@ -194,6 +194,12 @@ function createScenePromptCard(scene) {
   header.textContent = `Сцена ${scene.scene}`;
   card.appendChild(header);
 
+  const characterNote = document.createElement("p");
+  characterNote.textContent = scene.character_appears
+    ? "🧑 Піпі з'являється в цій сцені"
+    : "— Піпі в цій сцені немає";
+  card.appendChild(characterNote);
+
   const promptLabel = document.createElement("label");
   promptLabel.textContent = "Детальний промт сцени (скопіюйте в Google Flow):";
   card.appendChild(promptLabel);
@@ -265,6 +271,12 @@ function renderScriptReview(data, jobId) {
     const header = document.createElement("h3");
     header.textContent = `Сцена ${scene.scene} (${scene.duration}с)`;
     card.appendChild(header);
+
+    const characterNote = document.createElement("p");
+    characterNote.textContent = scene.character_appears
+      ? "🧑 Піпі з'являється в цій сцені"
+      : "— Піпі в цій сцені немає";
+    card.appendChild(characterNote);
 
     const label = document.createElement("label");
     label.textContent = "Текст репліки:";

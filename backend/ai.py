@@ -95,9 +95,14 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         json_example = (
             '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
             '"subtitle": "У 1986 році...", "camera_movement": "crash_zoom_in", '
-            '"visual_prompt": "A Soviet nuclear power plant control room at '
-            'night, dim red warning lights, tense atmosphere, cinematic, '
-            'vertical composition."}]'
+            '"character_appears": true, '
+            '"visual_prompt": "A cramped Soviet nuclear power plant control '
+            'room at night, rows of analog dials and switches on a heavy '
+            'metal console, dim flickering red warning lights casting long '
+            'shadows, thin haze in the air, tense claustrophobic atmosphere, '
+            'photorealistic cinematic film still, vertical 9:16 composition. '
+            'Pipi stands beside the console, wide-eyed and alarmed, pointing '
+            'at a blinking red gauge."}]'
         )
         # сценарій і так українською - окремий переклад не потрібен
         translation_instruction = ""
@@ -122,9 +127,14 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         json_example = (
             '[{"voice_text": "In nineteen eighty-six...", '
             '"subtitle": "In 1986...", "camera_movement": "crash_zoom_in", '
-            '"visual_prompt": "A Soviet nuclear power plant control room at '
-            'night, dim red warning lights, tense atmosphere, cinematic, '
-            'vertical composition.", '
+            '"character_appears": true, '
+            '"visual_prompt": "A cramped Soviet nuclear power plant control '
+            'room at night, rows of analog dials and switches on a heavy '
+            'metal console, dim flickering red warning lights casting long '
+            'shadows, thin haze in the air, tense claustrophobic atmosphere, '
+            'photorealistic cinematic film still, vertical 9:16 composition. '
+            'Pipi stands beside the console, wide-eyed and alarmed, pointing '
+            'at a blinking red gauge.", '
             '"translation_uk": "У тисяча дев\'ятсот вісімдесят шостому році..."}]'
         )
         # сценарій НЕ українською - додатково просимо переклад кожної
@@ -155,9 +165,21 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         f"нижче, яке найкраще передає САМЕ ЦЮ дію (не бери одне й те саме "
         "для кожної сцени підряд, лише якщо дія справді однакова): "
         f"{', '.join(CAMERA_MOVEMENTS.keys())}.\n"
-        "- visual_prompt - детальний ОПИС КАРТИНКИ англійською мовою для "
-        "AI-генератора зображень: що саме має бути зображено в цій "
-        "КОНКРЕТНІЙ сцені (предмет, місце дії, дія, атмосфера, освітлення). "
+        "- character_appears - true/false: чи має в цій сцені з'явитися "
+        "постійний персонаж-провідник відео на ім'я Pipi. Pipi НЕ повинен "
+        "бути в кожній сцені - вирішуй по суті: він природно пасує сценам "
+        "з реакцією/коментарем/емоцією (подив, тривога, ентузіазм), "
+        "hook-сцені й фінальній сцені із закликом підписатись, але НЕ "
+        "пасує сценам, що просто показують факт/об'єкт/місце без потреби "
+        "в людській реакції на нього. Розподіли true/false логічно по "
+        "сценах (не всі true, не всі false).\n"
+        "- visual_prompt - детальний ОПИС СЦЕНИ англійською мовою для "
+        "AI text-to-video генератора (користувач вставляє цей текст "
+        "напряму в Google Flow чи інший подібний інструмент і отримує "
+        "готове відео сцени - ЦЕ ЄДИНИЙ візуальний опис, ніякого "
+        "проміжного фото немає, тому промт має бути самодостатнім і "
+        "детальним): що саме відбувається в цій КОНКРЕТНІЙ сцені "
+        "(предмет, місце дії, дія, атмосфера, освітлення). "
         "ПЕРЕД тим як писати visual_prompt, визнач ГОЛОВНУ ДУМКУ саме цього "
         "voice_text (який конкретний факт/подія/аргумент розповідається "
         "зараз, а не тема відео загалом) - і зобрази САМЕ ЇЇ, а не загальну "
@@ -189,31 +211,34 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "явища. Наприклад, замість \"underwater explosion of gas bubbles\" "
         "пиши \"violent underwater explosion, massive turbulent shockwave, "
         "chaotic debris blasted upward, powerful dangerous force, ominous "
-        "atmosphere\" - інакше сцена втрачає драматизм тексту. Для такої "
-        "динамічної/катастрофічної дії показуй саме ПОЧАТКОВИЙ МОМЕНТ "
-        "зародження події (перша іскра/тріщина/спалах, вибух лише "
-        "починається), а НЕ вже завершений розпал у найвищій точці - "
-        "картинка є першим кадром, з якого сцену потім можуть оживити "
-        "рухом (image-to-video), а рухатись є куди лише якщо подія на "
-        "картинці ще розвивається, а не вже досягла піку. Кожна сцена "
+        "atmosphere\" - інакше сцена втрачає драматизм тексту. Кожна сцена "
         "повинна "
         "мати ВІЗУАЛЬНО РІЗНИЙ промт (різні предмети/ракурси/деталі), а "
         "не варіації одного й того самого кадру. Це промт для генерації "
-        "зображення, а НЕ переклад voice_text. Без жодного "
-        "тексту/літер/цифр/водяних знаків на самому зображенні. Вертикальна "
+        "відео, а НЕ переклад voice_text. Без жодного "
+        "тексту/літер/цифр/водяних знаків у кадрі. Вертикальна "
         "композиція (9:16), обов'язково кінематографічний стиль: глибина "
         "кадру, якість кінокадру (film still), а не проста ілюстрація. "
         "Головний обʼєкт сцени завжди має бути ЧІТКО ВИДНИЙ і ДОБРЕ "
         "ОСВІТЛЕНИЙ - уникай суцільного силуету, надмірної темряви чи "
-        "густого туману, які роблять обʼєкт нерозбірливим. visual_prompt "
-        "НЕ повинен містити жодного персонажа-провідника чи розповідача -"
-        " лише реалістичну сцену/фон без вигаданих людей, яких немає в "
-        "описі. visual_prompt "
-        "може бути детальним (декілька речень - опиши предмет, місце дії, "
-        "ключову дію, освітлення, атмосферу), АЛЕ кожна деталь має бути "
-        "ОБҐРУНТОВАНА змістом сцени - не вигадуй додаткових персонажів, "
-        "предметів чи елементів, яких немає в описі сцени, лише щоб "
-        "промт виглядав багатше. Кожен ГОЛОВНИЙ об'єкт сцени має бути "
+        "густого туману, які роблять обʼєкт нерозбірливим.\n"
+        "Персонаж Pipi: якщо character_appears для цієї сцени true - "
+        "visual_prompt МАЄ прямо називати його на ім'я (\"Pipi\") і "
+        "описувати одним реченням його конкретну дію/позу/вираз обличчя, "
+        "що відповідає змісту репліки (наприклад \"Pipi stands beside "
+        "the console, wide-eyed and alarmed, pointing at the gauge\"). "
+        "Якщо character_appears false - visual_prompt НЕ повинен "
+        "згадувати Pipi чи будь-якого іншого персонажа-провідника "
+        "взагалі - лише сцена/фон.\n"
+        "visual_prompt МАЄ бути детальним - МІНІМУМ 3-4 речення, що "
+        "разом покривають: (1) головний предмет/суб'єкт з конкретними "
+        "візуальними деталями (форма, колір, матеріал, стан), (2) "
+        "оточення/місце дії з деталями фону, (3) освітлення й кольорову "
+        "гаму, (4) загальну атмосферу/настрій сцени. Кожна деталь має "
+        "бути ОБҐРУНТОВАНА змістом сцени - не вигадуй додаткових "
+        "персонажів, предметів чи елементів, яких немає в описі сцени, "
+        "лише щоб промт виглядав багатше. Кожен ГОЛОВНИЙ об'єкт сцени "
+        "має бути "
         "згаданий РІВНО ОДИН РАЗ і чітко (наприклад один літак - не "
         "\"a plane\" і окремо ще раз натяком на другий літак чи крило "
         "збоку) - двозначні чи повторювані згадки одного предмета "
@@ -234,7 +259,8 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "не вказано - показуй сучасні речі.\n"
         f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
         'формату {"voice_text": "...", "subtitle": "...", "camera_movement": '
-        f'"...", "visual_prompt": "..."{translation_field_example}}}, без '
+        '"...", "character_appears": true/false, '
+        f'"visual_prompt": "..."{translation_field_example}}}, без '
         f"markdown і без пояснень. Приклад: {json_example}"
     )
 
@@ -289,6 +315,7 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
                 "subtitle": subtitle,
                 "visual_prompt": visual_prompt,
                 "motion_prompt": CAMERA_MOVEMENTS[camera_movement_key],
+                "character_appears": bool(scene.get("character_appears", False)),
             }
             if language != "uk":
                 # переклад лише для показу на сторінці - якщо Gemini з

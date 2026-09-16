@@ -113,6 +113,7 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
                 "voice_text": line, "subtitle": line,
                 "visual_prompt": f"{topic}, scene {i}",
                 "motion_prompt": CAMERA_MOVEMENTS[DEFAULT_CAMERA_MOVEMENT],
+                "character_appears": False,
             }
             for i, line in enumerate(lines, start=1)
         ]
@@ -125,6 +126,7 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
             "voice_text": texts["voice_text"],
             "visual_prompt": texts["visual_prompt"],
             "motion_prompt": texts["motion_prompt"],
+            "character_appears": texts.get("character_appears", False),
             "subtitle": texts["subtitle"],
             "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
         }
