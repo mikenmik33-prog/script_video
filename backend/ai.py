@@ -321,7 +321,6 @@ def _call_gemini(prompt: str) -> str:
                 "visual_prompt",
                 "translation_uk",
             ],
-            "additionalProperties": False,
         },
     }
     payload = json.dumps({

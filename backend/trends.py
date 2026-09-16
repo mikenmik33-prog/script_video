@@ -100,14 +100,12 @@ def _call_gemini(prompt: str) -> str:
                         "hook": {"type": "string"},
                     },
                     "required": ["title", "hook"],
-                    "additionalProperties": False,
                 },
                 "minItems": MAX_IDEAS,
                 "maxItems": MAX_IDEAS,
             }
         },
         "required": ["ideas"],
-        "additionalProperties": False,
     }
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
