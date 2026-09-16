@@ -50,6 +50,8 @@ import urllib.request
 
 from dotenv import load_dotenv
 
+from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
+
 try:
     import edge_tts
 except ImportError:
@@ -133,10 +135,11 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         )
         json_example = (
             '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
-            '"subtitle": "У 1986 році...", "visual_prompt": "A Soviet nuclear '
-            'power plant control room at night, dim red warning lights, tense '
-            'atmosphere, cinematic, vertical composition. The host character '
-            'looks alarmed and points at the control panel."}]'
+            '"subtitle": "У 1986 році...", "camera_movement": "crash_zoom_in", '
+            '"visual_prompt": "A Soviet nuclear power plant control room at '
+            'night, dim red warning lights, tense atmosphere, cinematic, '
+            'vertical composition. The host character looks alarmed and '
+            'points at the control panel."}]'
         )
         # сценарій і так українською - окремий переклад не потрібен
         translation_instruction = ""
@@ -160,10 +163,11 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         )
         json_example = (
             '[{"voice_text": "In nineteen eighty-six...", '
-            '"subtitle": "In 1986...", "visual_prompt": "A Soviet nuclear '
-            'power plant control room at night, dim red warning lights, tense '
-            'atmosphere, cinematic, vertical composition. The host character '
-            'looks alarmed and points at the control panel.", '
+            '"subtitle": "In 1986...", "camera_movement": "crash_zoom_in", '
+            '"visual_prompt": "A Soviet nuclear power plant control room at '
+            'night, dim red warning lights, tense atmosphere, cinematic, '
+            'vertical composition. The host character looks alarmed and '
+            'points at the control panel.", '
             '"translation_uk": "У тисяча дев\'ятсот вісімдесят шостому році..."}]'
         )
         # сценарій НЕ українською - додатково просимо переклад кожної
@@ -184,10 +188,16 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Перша сцена - сильний hook, що одразу чіпляє увагу. "
         "Остання сцена - короткий висновок і заклик підписатись. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
-        "Для кожної сцени поверни ТРИ поля:\n"
+        "Для кожної сцени поверни ці поля:\n"
         f"{number_format_instruction}"
         f"{subtitle_instruction}"
         f"{translation_instruction}"
+        "- camera_movement - оціни ДІЮ саме цієї сцени (спокійна розповідь, "
+        "різкий поворот сюжету, наближення до важливої деталі, рух/погоня, "
+        "огляд великого простору тощо) і поверни ОДНЕ слово-ключ зі списку "
+        f"нижче, яке найкраще передає САМЕ ЦЮ дію (не бери одне й те саме "
+        "для кожної сцени підряд, лише якщо дія справді однакова): "
+        f"{', '.join(CAMERA_MOVEMENTS.keys())}.\n"
         "- visual_prompt - детальний ОПИС КАРТИНКИ англійською мовою для "
         "AI-генератора зображень: що саме має бути зображено в цій "
         "КОНКРЕТНІЙ сцені (предмет, місце дії, дія, атмосфера, освітлення). "
@@ -271,9 +281,9 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "Другої світової, а не сучасна); якщо йдеться про сучасність чи рік "
         "не вказано - показуй сучасні речі.\n"
         f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
-        'формату {"voice_text": "...", "subtitle": "...", "visual_prompt": '
-        f'"..."{translation_field_example}}}, без markdown і без пояснень. '
-        f"Приклад: {json_example}"
+        'формату {"voice_text": "...", "subtitle": "...", "camera_movement": '
+        f'"...", "visual_prompt": "..."{translation_field_example}}}, без '
+        f"markdown і без пояснень. Приклад: {json_example}"
     )
 
 
@@ -319,10 +329,14 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
             voice_text = str(scene["voice_text"]).strip()
             subtitle = str(scene.get("subtitle", voice_text)).strip()
             visual_prompt = str(scene.get("visual_prompt", topic)).strip()
+            camera_movement_key = str(scene.get("camera_movement", "")).strip()
+            if camera_movement_key not in CAMERA_MOVEMENTS:
+                camera_movement_key = DEFAULT_CAMERA_MOVEMENT
             entry = {
                 "voice_text": voice_text,
                 "subtitle": subtitle,
                 "visual_prompt": visual_prompt,
+                "motion_prompt": CAMERA_MOVEMENTS[camera_movement_key],
             }
             if language != "uk":
                 # переклад лише для показу на сторінці - якщо Gemini з

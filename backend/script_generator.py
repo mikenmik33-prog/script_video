@@ -9,15 +9,18 @@ hook -> основна частина -> висновок, автоматичн�
 шаблонний генератор нижче - він не залежить від жодного зовнішнього
 сервісу.
 
-Кожна сцена містить три тексти: voice_text (для озвучки - числа
-словами), subtitle (для екрану - числа цифрами) і visual_prompt
-(детальний опис картинки англійською для генератора зображень,
-scene_generator.py). "duration" на цьому етапі лише орієнтовна оцінка -
-voice_generator пізніше замінить її на реальну тривалість згенерованої
-озвучки.
+Кожна сцена містить: voice_text (для озвучки - числа словами), subtitle
+(для екрану - числа цифрами), visual_prompt (детальний опис картинки
+англійською для генератора зображень, scene_generator.py) і
+motion_prompt (готовий промт руху камери для image-to-video, Gemini сам
+обирає найбільш підходящий варіант зі списку в
+backend/camera_movements.py під дію конкретної сцени). "duration" на
+цьому етапі лише орієнтовна оцінка - voice_generator пізніше замінить
+її на реальну тривалість згенерованої озвучки.
 """
 
 from backend import ai
+from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
 
 SCENE_DURATION = 5  # орієнтовна тривалість однієї сцени, секунди (лише
 # початкова оцінка - voice_generator пізніше замінить її на реальну
@@ -106,7 +109,11 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
         # DEMO-шаблон не має ні чисел, ні реального image-промта від AI:
         # voice_text/subtitle однакові, а visual_prompt - проста заглушка
         scene_texts = [
-            {"voice_text": line, "subtitle": line, "visual_prompt": f"{topic}, scene {i}"}
+            {
+                "voice_text": line, "subtitle": line,
+                "visual_prompt": f"{topic}, scene {i}",
+                "motion_prompt": CAMERA_MOVEMENTS[DEFAULT_CAMERA_MOVEMENT],
+            }
             for i, line in enumerate(lines, start=1)
         ]
 
@@ -117,6 +124,7 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
             "duration": scene_duration,
             "voice_text": texts["voice_text"],
             "visual_prompt": texts["visual_prompt"],
+            "motion_prompt": texts["motion_prompt"],
             "subtitle": texts["subtitle"],
             "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
         }

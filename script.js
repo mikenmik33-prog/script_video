@@ -284,13 +284,13 @@ function createSceneVideoCard(scene, imageUrl, jobId) {
   const { card, state } = createImageRegenerateSection(scene, imageUrl, jobId);
 
   const promptLabel = document.createElement("label");
-  promptLabel.textContent = "Промт для руху (можна дописати опис дії/камери):";
+  promptLabel.textContent = "Промт для руху (Gemini підібрав автоматично під дію сцени, можна відредагувати):";
   card.appendChild(promptLabel);
 
   const promptInput = document.createElement("textarea");
   promptInput.className = "test-prompt-input";
-  promptInput.value = scene.visual_prompt;
-  promptInput.rows = 3;
+  promptInput.value = scene.motion_prompt || scene.visual_prompt;
+  promptInput.rows = 4;
   card.appendChild(promptInput);
 
   const button = document.createElement("button");
