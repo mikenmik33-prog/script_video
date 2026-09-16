@@ -16,8 +16,6 @@ import subprocess
 
 from backend import ai
 
-SAMPLE_RATE = 44100
-
 # невелика пауза після кожної репліки, щоб озвучка не звучала "впритул"
 SCENE_PADDING_SECONDS = 0.3
 

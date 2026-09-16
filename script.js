@@ -22,7 +22,6 @@ const resultPanel = document.getElementById("result-panel");
 
 const scriptReviewPanel = document.getElementById("script-review-panel");
 const scriptReviewScenes = document.getElementById("script-review-scenes");
-const scriptReviewVoiceWarning = document.getElementById("script-review-voice-warning");
 const approveScriptButton = document.getElementById("approve-script-button");
 const scriptReviewStatus = document.getElementById("script-review-status");
 
@@ -142,16 +141,6 @@ async function loadResult(jobId) {
 
 function renderResult(data, jobId) {
   const { script, result } = data;
-
-  const voiceWarning = document.getElementById("result-voice-warning");
-  if (result.silent_voice_count > 0) {
-    voiceWarning.textContent =
-      `⚠️ ${result.silent_voice_count} із ${script.scenes.length} сцен озвучено тишею ` +
-      `(edge-tts не відповів) - перевірте аудіофайли нижче перед монтажем.`;
-    voiceWarning.hidden = false;
-  } else {
-    voiceWarning.hidden = true;
-  }
 
   document.getElementById("result-full-text").textContent = script.full_text;
 
@@ -276,16 +265,7 @@ async function loadScriptReview(jobId) {
 }
 
 function renderScriptReview(data, jobId) {
-  const { script, silent_voice_count: silentVoiceCount } = data;
-
-  if (silentVoiceCount > 0) {
-    scriptReviewVoiceWarning.textContent =
-      `⚠️ ${silentVoiceCount} із ${script.scenes.length} сцен озвучено тишею ` +
-      `(edge-tts не відповів) - можна відредагувати текст, щоб спробувати ще раз.`;
-    scriptReviewVoiceWarning.hidden = false;
-  } else {
-    scriptReviewVoiceWarning.hidden = true;
-  }
+  const { script } = data;
 
   const scriptReviewFullTextUk = document.getElementById("script-review-full-text-uk");
   if (script.full_text_uk) {

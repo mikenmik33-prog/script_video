@@ -6,11 +6,7 @@ AI-сервіси.
 
 - Сценарій (текст + детальний промт сцени + рекомендований промт руху
   камери): Gemini API (потрібен GEMINI_API_KEY, безкоштовний).
-- Озвучка: edge-tts - безкоштовний, без API-ключа (використовує
-  публічний сервіс синтезу мовлення Microsoft Edge). Це неофіційна
-  бібліотека, тому за потреби легко замінити на офіційний платний TTS
-  (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
-  та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
+- Озвучка: edge-tts — зовнішній сервіс синтезу мовлення Microsoft Edge.
 - Картинки й відео: застосунок НЕ генерує ні те, ні інше (за рішенням
   користувача - платна генерація картинок через fal.ai виявилась
   зайвим кроком). Замість цього кожна сцена має готовий детальний
@@ -50,9 +46,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"

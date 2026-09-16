@@ -148,7 +148,6 @@ def _new_job_state(request: GenerateRequest) -> dict:
         "error": None,
         "script": None,
         "voice_files": None,
-        "silent_voice_count": 0,
         "result": None,
         "created_at": time.time(),
     }
@@ -197,11 +196,10 @@ def run_script_stage(job_id: str):
         _set_stage(job, "script", "done")
 
         _set_stage(job, "voice", "active")
-        voice_files, silent_voice_count = voice_generator.generate_all_voices(
+        voice_files, _ = voice_generator.generate_all_voices(
             script["scenes"], audio_dir, job["language"],
         )
         job["voice_files"] = [f"/output/{job_id}/audio/{os.path.basename(p)}" for p in voice_files]
-        job["silent_voice_count"] = silent_voice_count
         _set_stage(job, "voice", "done")
 
         job["status"] = "script_review"
@@ -234,7 +232,6 @@ def run_finalize_stage(job_id: str):
             "script_url": f"/output/{job_id}/script.json",
             "subtitles_url": f"/output/{job_id}/subtitles.srt",
             "voice_files": job["voice_files"],
-            "silent_voice_count": job["silent_voice_count"],
         }
     except Exception as exc:
         job["status"] = "error"
@@ -312,7 +309,6 @@ def get_script_for_review(job_id: str):
         "topic": job["topic"],
         "script": job["script"],
         "voice_files": job["voice_files"],
-        "silent_voice_count": job["silent_voice_count"],
     }
 
 
