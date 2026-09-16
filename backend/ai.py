@@ -327,12 +327,8 @@ def _call_gemini(prompt: str) -> str:
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "responseFormat": {
-                "text": {
-                    "mimeType": "application/json",
-                    "schema": scene_schema,
-                }
-            }
+            "responseMimeType": "application/json",
+            "responseSchema": scene_schema,
         },
     }).encode("utf-8")
 
