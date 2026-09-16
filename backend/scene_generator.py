@@ -51,7 +51,12 @@ MASCOT_DESCRIPTION = (
     "legs, and a very simple but expressive face (two dot eyes, simple "
     "eyebrows, a simple mouth line showing emotion). He looks like a flat "
     "sketch standing in front of or within the real photorealistic "
-    "background, clearly readable, always the same simple design."
+    "background, clearly readable, always the same simple design. "
+    "IMPORTANT: only this one character is a drawn cartoon - everything "
+    "else in the image (background, environment, objects, people, "
+    "vehicles) must stay fully photorealistic, real photography, NOT "
+    "cartoon or illustrated - the contrast between the drawn character "
+    "and the real world around him is the whole point."
 )
 
 
