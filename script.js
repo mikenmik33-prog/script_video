@@ -214,7 +214,7 @@ function createScenePromptCard(scene) {
   card.appendChild(promptText);
 
   const motionLabel = document.createElement("label");
-  motionLabel.textContent = "Рекомендований промт руху камери (GPT підібрав під дію сцени):";
+  motionLabel.textContent = "Рекомендований промт руху камери (Gemini підібрав під дію сцени):";
   card.appendChild(motionLabel);
 
   const motionText = document.createElement("textarea");
@@ -405,7 +405,7 @@ async function handleFormSubmit(event) {
 
 form.addEventListener("submit", handleFormSubmit);
 
-// --- Ідеї для відео від GPT ---
+// --- Ідеї для відео від Gemini ---
 
 const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
 
@@ -499,7 +499,7 @@ async function handleRefreshIdeas() {
 refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
 // Список ідей залежить від мови (окремі кеші uk/en на бекенді) -
 // перемикання мови одразу показує вже підготовлений список тієї мови
-// (без нового звернення до GPT - лише читання кешу).
+// (без нового звернення до Gemini - лише читання кешу).
 languageSelect.addEventListener("change", loadTrendingIdeas);
 
 // Кастомний дропдаун мови: керує лише виглядом, а фактичне значення
@@ -564,4 +564,3 @@ syncLanguageOptionUi(languageSelect.value);
 
 loadTrendingIdeas();
 setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);
-

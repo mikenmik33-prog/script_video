@@ -5,7 +5,7 @@
 лише готовий текстовий промт-підказка, який показується разом із
 кожним фото сцени для копіювання в зовнішній відео-генератор.
 
-OpenAI GPT (ai.py, _build_script_prompt) для КОЖНОЇ сцени сам обирає один
+Google Gemini (ai.py, _build_script_prompt) для КОЖНОЇ сцени сам обирає один
 ключ із CAMERA_MOVEMENTS, що найкраще підходить під дію саме цієї
 сцени (а не по черзі підряд).
 """
@@ -310,4 +310,3 @@ CAMERA_MOVEMENTS = {
 }
 
 DEFAULT_CAMERA_MOVEMENT = "static_shot"
-

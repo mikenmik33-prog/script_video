@@ -241,13 +241,13 @@ def run_finalize_stage(job_id: str):
 
 @app.get("/api/trending-ideas")
 def get_trending_ideas(language: str = "en"):
-    """Десять перевірених GPT-ідей для вибраної мовної аудиторії."""
+    """Десять ідей від Gemini для вибраної мовної аудиторії."""
     return trends.get_ideas(language)
 
 
 @app.post("/api/trending-ideas/refresh")
 def refresh_trending_ideas(language: str = "en"):
-    """Примусово генерує новий список із десяти GPT-ідей."""
+    """Примусово генерує новий список із десяти ідей Gemini."""
     updated = trends.refresh_ideas(language)
     return {"updated": updated, **trends.get_ideas(language)}
 
@@ -372,4 +372,3 @@ def serve_js():
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
-

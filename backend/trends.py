@@ -1,4 +1,4 @@
-"""GPT-generated topic suggestions for the video generator.
+"""Gemini-generated topic suggestions for the video generator.
 
 Suggestions are adapted to the selected audience and language using the model's
 knowledge only. The UI shows ten refreshable ideas; clicking one copies its
@@ -19,10 +19,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano").strip()
-OPENAI_URL = "https://api.openai.com/v1/responses"
-OPENAI_TIMEOUT_SECONDS = 60
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_TIMEOUT_SECONDS = 60
 
 DEFAULT_LANGUAGE = "en"
 MAX_IDEAS = 10
@@ -53,17 +53,15 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _extract_openai_text(body: dict) -> str:
-    output_text = body.get("output_text")
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text
-    for item in body.get("output", []):
-        if item.get("type") != "message":
-            continue
-        for content in item.get("content", []):
-            if content.get("type") == "output_text" and content.get("text"):
-                return content["text"]
-    raise RuntimeError("OpenAI не повернув текстову відповідь для ідей.")
+def _extract_gemini_text(body: dict) -> str:
+    """Extract generated text from a Gemini generateContent response."""
+    for candidate in body.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                return text
+    raise RuntimeError("Gemini не повернув текстову відповідь для ідей.")
 
 
 def _build_ideas_prompt(language: str) -> str:
@@ -86,9 +84,9 @@ concise sentence explaining the surprising angle). Do not include URLs,
 markdown, numbering, or extra fields."""
 
 
-def _call_openai(prompt: str) -> str:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("Не задано OPENAI_API_KEY.")
+def _call_gemini(prompt: str) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Не задано GEMINI_API_KEY.")
 
     schema = {
         "type": "object",
@@ -112,49 +110,50 @@ def _call_openai(prompt: str) -> str:
         "additionalProperties": False,
     }
     payload = json.dumps({
-        "model": OPENAI_MODEL,
-        "input": prompt,
-        "text": {"format": {
-            "type": "json_schema",
-            "name": "topic_ideas",
-            "strict": True,
-            "schema": schema,
-        }},
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseFormat": {
+                "text": {
+                    "mimeType": "application/json",
+                    "schema": schema,
+                }
+            }
+        },
     }).encode("utf-8")
     request = urllib.request.Request(
-        OPENAI_URL,
+        GEMINI_URL.format(model=GEMINI_MODEL),
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "x-goog-api-key": GEMINI_API_KEY,
         },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=OPENAI_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        logger.warning("OpenAI ideas API HTTP %s", exc.code)
+        logger.warning("Gemini ideas API HTTP %s", exc.code)
         raise
-    return _extract_openai_text(body)
+    return _extract_gemini_text(body)
 
 
 def refresh_ideas(language: str = DEFAULT_LANGUAGE) -> bool:
     """Generate and cache ten ideas for one language."""
     language = _normalize_language(language)
     try:
-        raw = _call_openai(_build_ideas_prompt(language))
+        raw = _call_gemini(_build_ideas_prompt(language))
         data = json.loads(_strip_code_fence(raw))
         ideas = data.get("ideas") if isinstance(data, dict) else None
         if not isinstance(ideas, list) or len(ideas) != MAX_IDEAS:
-            raise ValueError("GPT повернув не рівно 10 ідей.")
+            raise ValueError("Gemini повернув не рівно 10 ідей.")
         normalized = []
         for idea in ideas:
             if not isinstance(idea, dict) or not idea.get("title") or not idea.get("hook"):
-                raise ValueError("GPT повернув неповну ідею.")
+                raise ValueError("Gemini повернув неповну ідею.")
             normalized.append({"title": str(idea["title"]).strip(), "hook": str(idea["hook"]).strip()})
     except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError, KeyError, TypeError):
-        logger.exception("Не вдалося оновити GPT-ідеї")
+        logger.exception("Не вдалося оновити Gemini-ідеї")
         with _cache_lock:
             _last_error[language] = "Не вдалося оновити список ідей. Спробуйте ще раз."
         return False
@@ -172,7 +171,7 @@ def get_ideas(language: str = DEFAULT_LANGUAGE) -> dict:
         return {
             "ideas": list(_cached_ideas[language]),
             "last_updated": _last_updated[language],
-            "source": "openai",
+            "source": "gemini",
             "error": _last_error[language],
         }
 
