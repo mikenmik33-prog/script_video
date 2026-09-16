@@ -345,8 +345,13 @@ def _call_gemini(prompt: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
-        body = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")
+        logger.warning("Gemini script API HTTP %s: %s", exc.code, details[:2000])
+        raise
 
     return _extract_gemini_text(body)
 
