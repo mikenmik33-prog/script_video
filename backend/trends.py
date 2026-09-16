@@ -1,28 +1,8 @@
-"""
-Модуль трендових ідей для відео.
+"""GPT-generated topic suggestions for the video generator.
 
-Працюємо в одній фіксованій ніші - цікаві факти, наука/технології та
-загадкові/містичні історії (у форматі оповіді про щось цікаве, а не
-гейминг/меми/трейлери). Тому замість "просто найпопулярніші відео
-YouTube" (chart=mostPopular) шукаємо трендові відео САМЕ в цій ніші
-через пошук (search.list за ключовими словами), а тоді підтягуємо
-реальну кількість переглядів (videos.list) і сортуємо від найбільшої
-до найменшої.
-
-Список ЗАЛЕЖИТЬ ВІД МОВИ, обраної в формі "Новий промт" - для "uk"
-шукаємо українською мовою й регіоном UA, для "en" - англійською і
-регіоном US (LANGUAGES нижче). Кеші двох мов незалежні одне від
-одного.
-
-Це коштує значно дорожчої квоти YouTube API, ніж chart=mostPopular
-(search.list = 100 одиниць за виклик, безкоштовна квота - 10 000/добу),
-тому фонове оновлення відбувається рідше (раз на кілька годин), а не
-щохвилини - обидві мови оновлюються одразу при старті сервера (це і є
-"оновлення при заході на сторінку"), а надалі лише вручну кнопкою чи
-за фоновим розкладом.
-
-Потрібен YOUTUBE_API_KEY. За відсутності ключа чи помилки API локальні
-ідеї не підставляються: клієнт отримує порожній список і опис проблеми.
+Suggestions are researched by GPT with web search and adapted to the selected
+audience and language. The UI shows ten refreshable ideas; clicking one copies
+its title into the topic field.
 """
 
 import json
@@ -31,7 +11,6 @@ import os
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from dotenv import load_dotenv
@@ -40,133 +19,152 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()
-YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
-YOUTUBE_TIMEOUT_SECONDS = 20
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-astra").strip()
+OPENAI_URL = "https://api.openai.com/v1/responses"
+OPENAI_TIMEOUT_SECONDS = 60
 
-DEFAULT_LANGUAGE = "uk"
+DEFAULT_LANGUAGE = "en"
+MAX_IDEAS = 10
+REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 
-# Ніша: цікаві факти / наука і технології / загадкові історії - усе у
-# форматі короткої розповіді "про щось цікаве". Окремі пошукові запити
-# й регіон для кожної мови озвучки, щоб стрічка справді показувала
-# популярне САМЕ для цієї мовної аудиторії, а не переклад української.
 LANGUAGES = {
-    "uk": {
-        "region": "UA",
-        "relevance_language": "uk",
-        "niche_queries": ["цікаві факти", "наукові факти", "загадкові історії факти"],
-    },
-    "en": {
-        "region": "US",
-        "relevance_language": "en",
-        "niche_queries": ["interesting facts", "science facts", "mysterious unsolved stories"],
-    },
+    "en": {"language": "English", "audience": "adults in the United States"},
+    "uk": {"language": "Ukrainian", "audience": "Ukrainian-speaking adults"},
 }
-
-RESULTS_PER_QUERY = 10
-MAX_IDEAS = 20
-
-# search.list коштує 100 одиниць квоти за запит (у нас 3 запити на
-# оновлення + 1 дешевий videos.list, помножено на 2 мови) - тому
-# оновлюємо нечасто, щоб не вичерпати безкоштовну добову квоту
-# (10 000 одиниць/добу)
-REFRESH_INTERVAL_SECONDS = 3 * 60 * 60  # раз на 3 години
 
 _cache_lock = threading.Lock()
 _cached_ideas = {lang: [] for lang in LANGUAGES}
 _last_updated = {lang: None for lang in LANGUAGES}
+_last_error = {lang: None for lang in LANGUAGES}
 
 
 def _normalize_language(language: str) -> str:
     return language if language in LANGUAGES else DEFAULT_LANGUAGE
 
 
-def _search_video_ids(query: str, region: str, relevance_language: str) -> list:
-    """Пошук відео за ключовим словом ніші. Повертає список videoId
-    (без статистики переглядів - search.list її не дає)."""
-    params = {
-        "part": "id",
-        "q": query,
-        "type": "video",
-        "order": "viewCount",
-        "regionCode": region,
-        "relevanceLanguage": relevance_language,
-        "maxResults": str(RESULTS_PER_QUERY),
-        "key": YOUTUBE_API_KEY,
-    }
-    url = f"{YOUTUBE_SEARCH_URL}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url)
-    with urllib.request.urlopen(request, timeout=YOUTUBE_TIMEOUT_SECONDS) as response:
-        body = json.loads(response.read().decode("utf-8"))
-
-    return [item["id"]["videoId"] for item in body.get("items", []) if item.get("id", {}).get("videoId")]
+def _strip_code_fence(text: str) -> str:
+    text = text.strip()
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
-def _fetch_video_stats(video_ids: list) -> list:
-    """Реальна кількість переглядів і мініатюри для списку videoId (одним запитом)."""
-    if not video_ids:
-        return []
-
-    params = {
-        "part": "snippet,statistics",
-        "id": ",".join(video_ids),
-        "key": YOUTUBE_API_KEY,
-    }
-    url = f"{YOUTUBE_VIDEOS_URL}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url)
-    with urllib.request.urlopen(request, timeout=YOUTUBE_TIMEOUT_SECONDS) as response:
-        body = json.loads(response.read().decode("utf-8"))
-
-    ideas = []
-    for item in body.get("items", []):
-        title = item["snippet"]["title"]
-        views = int(item.get("statistics", {}).get("viewCount", 0))
-        thumbnails = item["snippet"].get("thumbnails", {})
-        thumbnail = (thumbnails.get("medium") or thumbnails.get("default") or {}).get("url")
-        ideas.append({"title": title, "views": views, "thumbnail": thumbnail})
-    return ideas
+def _extract_openai_text(body: dict) -> str:
+    output_text = body.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+    for item in body.get("output", []):
+        if item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if content.get("type") == "output_text" and content.get("text"):
+                return content["text"]
+    raise RuntimeError("OpenAI не повернув текстову відповідь для ідей.")
 
 
-def _fetch_niche_trending(language: str) -> list:
-    """Збирає трендові відео ніші (для конкретної мови/регіону) з кількох
-    пошукових запитів, прибирає дублікати і сортує від найбільшої
-    кількості переглядів до найменшої."""
+def _build_ideas_prompt(language: str) -> str:
     cfg = LANGUAGES[language]
-    video_ids = []
-    seen = set()
-    for query in cfg["niche_queries"]:
-        for video_id in _search_video_ids(query, cfg["region"], cfg["relevance_language"]):
-            if video_id not in seen:
-                seen.add(video_id)
-                video_ids.append(video_id)
+    today = time.strftime("%Y-%m-%d")
+    return f"""You are the topic editor for a short-form factual video channel.
+Today is {today}. Create exactly {MAX_IDEAS} distinct topic ideas for
+{cfg['audience']}. Write every title and hook in {cfg['language']}.
 
-    ideas = _fetch_video_stats(video_ids)
-    ideas.sort(key=lambda i: i["views"], reverse=True)
-    return ideas[:MAX_IDEAS]
+Focus on surprising verified facts, scientific discoveries, real human
+adventures, and understandable current events. Use web search to check that
+the core claim behind every idea is real and supported by reputable sources.
+Do not invent facts, fake discoveries, rumors, or unsupported numbers. Current
+events are allowed only when they are clear and genuinely interesting to this
+audience. Keep topics PG-13: no graphic violence, sexual content, hate,
+political persuasion, or risky clickbait.
+
+Return only a JSON object with an `ideas` array of exactly {MAX_IDEAS} items.
+Each item must contain `title` (a short intriguing topic title) and `hook` (one
+concise sentence explaining the surprising angle). Do not include URLs,
+markdown, numbering, or extra fields."""
+
+
+def _call_openai(prompt: str) -> str:
+    if not OPENAI_API_KEY:
+        raise RuntimeError("Не задано OPENAI_API_KEY.")
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "ideas": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "hook": {"type": "string"},
+                    },
+                    "required": ["title", "hook"],
+                    "additionalProperties": False,
+                },
+                "minItems": MAX_IDEAS,
+                "maxItems": MAX_IDEAS,
+            }
+        },
+        "required": ["ideas"],
+        "additionalProperties": False,
+    }
+    payload = json.dumps({
+        "model": OPENAI_MODEL,
+        "input": prompt,
+        "tools": [{"type": "web_search_preview"}],
+        "text": {"format": {
+            "type": "json_schema",
+            "name": "topic_ideas",
+            "strict": True,
+            "schema": schema,
+        }},
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        OPENAI_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=OPENAI_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        logger.warning("OpenAI ideas API HTTP %s", exc.code)
+        raise
+    return _extract_openai_text(body)
 
 
 def refresh_ideas(language: str = DEFAULT_LANGUAGE) -> bool:
-    """Одноразово оновлює кеш ідей для однієї мови. Повертає True, якщо
-    оновлення вдалося."""
+    """Generate and cache ten ideas for one language."""
     language = _normalize_language(language)
-
-    if not YOUTUBE_API_KEY:
-        logger.warning("YOUTUBE_API_KEY не задано; трендові ідеї недоступні")
-        return False
-
     try:
-        ideas = _fetch_niche_trending(language)
-    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
-        logger.warning("YouTube API недоступний (%s), лишаємо попередній список ідей", exc)
-        return False
-
-    if not ideas:
+        raw = _call_openai(_build_ideas_prompt(language))
+        data = json.loads(_strip_code_fence(raw))
+        ideas = data.get("ideas") if isinstance(data, dict) else None
+        if not isinstance(ideas, list) or len(ideas) != MAX_IDEAS:
+            raise ValueError("GPT повернув не рівно 10 ідей.")
+        normalized = []
+        for idea in ideas:
+            if not isinstance(idea, dict) or not idea.get("title") or not idea.get("hook"):
+                raise ValueError("GPT повернув неповну ідею.")
+            normalized.append({"title": str(idea["title"]).strip(), "hook": str(idea["hook"]).strip()})
+    except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError, KeyError, TypeError):
+        logger.exception("Не вдалося оновити GPT-ідеї")
+        with _cache_lock:
+            _last_error[language] = "Не вдалося оновити список ідей. Спробуйте ще раз."
         return False
 
     with _cache_lock:
-        _cached_ideas[language] = ideas
+        _cached_ideas[language] = normalized
         _last_updated[language] = time.time()
+        _last_error[language] = None
     return True
 
 
@@ -176,8 +174,8 @@ def get_ideas(language: str = DEFAULT_LANGUAGE) -> dict:
         return {
             "ideas": list(_cached_ideas[language]),
             "last_updated": _last_updated[language],
-            "source": "youtube",
-            "error": None if YOUTUBE_API_KEY else "Не задано YOUTUBE_API_KEY.",
+            "source": "openai",
+            "error": _last_error[language],
         }
 
 
@@ -189,13 +187,8 @@ def _background_refresh_loop():
 
 
 def start_background_refresh():
-    """Одразу підтягує актуальний список ДЛЯ ОБОХ мов (це і є "оновлення
-    при заході на сторінку" - сервер підхоплює свіжі тренди одразу при
-    старті) і запускає фоновий потік, який періодично оновлює обидві
-    мови (раз на REFRESH_INTERVAL_SECONDS). Після цього - лише вручну
-    кнопкою "Оновити"."""
+    """Prepare both language lists at startup and refresh them periodically."""
     for language in LANGUAGES:
         refresh_ideas(language)
-    thread = threading.Thread(target=_background_refresh_loop, daemon=True)
-    thread.start()
+    threading.Thread(target=_background_refresh_loop, daemon=True).start()
 

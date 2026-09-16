@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>AI Video Generator</title>
@@ -12,7 +12,7 @@
 
   <section class="panel ideas-panel">
     <div class="ideas-header">
-      <h2>Популярні відео (з YouTube)</h2>
+      <h2>Ідеї для відео від GPT</h2>
       <button type="button" id="refresh-ideas-button" class="refresh-button">↻ Оновити</button>
     </div>
     <p id="ideas-updated" class="ideas-updated"></p>
@@ -36,8 +36,8 @@
 
         <label id="language-label">Мова</label>
         <select id="language" name="language" hidden aria-hidden="true" tabindex="-1">
-          <option value="uk">Українська</option>
           <option value="en">English</option>
+          <option value="uk">Українська</option>
         </select>
         <div class="custom-select" id="language-select">
           <button
@@ -48,12 +48,12 @@
             aria-expanded="false"
             aria-labelledby="language-label"
           >
-            <span class="custom-select-value">Українська</span>
+            <span class="custom-select-value">English</span>
             <span class="custom-select-arrow" aria-hidden="true">▾</span>
           </button>
           <ul class="custom-select-options" role="listbox" tabindex="-1" hidden>
-            <li role="option" data-value="uk" aria-selected="true">Українська</li>
-            <li role="option" data-value="en" aria-selected="false">English</li>
+            <li role="option" data-value="en" aria-selected="true">English</li>
+            <li role="option" data-value="uk" aria-selected="false">Українська</li>
           </ul>
         </div>
 

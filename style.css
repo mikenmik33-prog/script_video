@@ -184,6 +184,17 @@ body {
   color: var(--text-muted);
 }
 
+.idea-hook {
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .panel h2 {
   margin-top: 0;
   font-size: 18px;
@@ -492,3 +503,4 @@ button#submit-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+

@@ -240,18 +240,14 @@ def run_finalize_stage(job_id: str):
 
 
 @app.get("/api/trending-ideas")
-def get_trending_ideas(language: str = "uk"):
-    """Список ідей теми з найпопулярніших відео YouTube (від найбільш до
-    найменш популярного за переглядами), окремо для кожної мови озвучки.
-    Оновлюється у фоні автоматично (обидві мови одразу при старті
-    сервера, далі раз на кілька годин)."""
+def get_trending_ideas(language: str = "en"):
+    """Десять перевірених GPT-ідей для вибраної мовної аудиторії."""
     return trends.get_ideas(language)
 
 
 @app.post("/api/trending-ideas/refresh")
-def refresh_trending_ideas(language: str = "uk"):
-    """Примусово оновлює список ідей для однієї мови зараз, не чекаючи
-    фонового розкладу."""
+def refresh_trending_ideas(language: str = "en"):
+    """Примусово генерує новий список із десяти GPT-ідей."""
     updated = trends.refresh_ideas(language)
     return {"updated": updated, **trends.get_ideas(language)}
 

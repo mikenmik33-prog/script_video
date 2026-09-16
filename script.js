@@ -405,7 +405,7 @@ async function handleFormSubmit(event) {
 
 form.addEventListener("submit", handleFormSubmit);
 
-// --- Популярні відео (з YouTube) ---
+// --- Ідеї для відео від GPT ---
 
 const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
 
@@ -455,12 +455,11 @@ function renderIdeas(data) {
     title.textContent = idea.title;
     card.appendChild(title);
 
-    const views = formatViews(idea.views);
-    if (views) {
-      const viewsEl = document.createElement("div");
-      viewsEl.className = "idea-views";
-      viewsEl.textContent = views;
-      card.appendChild(viewsEl);
+    if (idea.hook) {
+      const hook = document.createElement("div");
+      hook.className = "idea-hook";
+      hook.textContent = idea.hook;
+      card.appendChild(hook);
     }
 
     card.addEventListener("click", () => {
@@ -498,9 +497,9 @@ async function handleRefreshIdeas() {
 }
 
 refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
-// Список трендів залежить від мови (окремі кеші uk/en на бекенді) -
+// Список ідей залежить від мови (окремі кеші uk/en на бекенді) -
 // перемикання мови одразу показує вже підготовлений список тієї мови
-// (без нового звернення до YouTube API - лише читання кешу).
+// (без нового звернення до GPT - лише читання кешу).
 languageSelect.addEventListener("change", loadTrendingIdeas);
 
 // Кастомний дропдаун мови: керує лише виглядом, а фактичне значення
