@@ -25,10 +25,8 @@ AI-сервіси.
   застосовує вручну у своєму відеоредакторі.
 
 Якщо AI-виклик не вдається (немає ключа, немає інтернету, збій
-відповіді) - відповідна generate_*_with_ai() повертає None, і викликач
-(script_generator / voice_generator) переходить на локальну
-DEMO-заглушку. Це гарантує, що застосунок ніколи не "падає" через
-проблеми з зовнішнім сервісом.
+відповіді), відповідна функція піднімає зрозумілу помилку. Застосунок
+не переходить на локальні шаблони чи заглушки.
 """
 
 import asyncio
@@ -330,12 +328,12 @@ def generate_script_scenes_with_ai(topic: str, language: str):
     Gemini сам вирішує, скільки сцен потрібно (орієнтовно 25-30с
     озвучки загалом) - кількість НЕ фіксується наперед.
 
-    Повертає список словників {"voice_text", "subtitle", "visual_prompt", ...},
-    або None - якщо ключа немає чи запит не вдався (тоді script_generator
-    використовує локальний DEMO-шаблон).
+    Повертає список словників {"voice_text", "subtitle", "visual_prompt", ...}.
+    Якщо ключ відсутній або Gemini повертає некоректну відповідь, піднімає
+    помилку: застосунок не підміняє реальний результат тестовим сценарієм.
     """
     if not GEMINI_API_KEY:
-        return None
+        raise RuntimeError("Не задано GEMINI_API_KEY. Додайте ключ у файл .env і перезапустіть сервер.")
 
     try:
         prompt = _build_script_prompt(topic, language)
@@ -343,16 +341,13 @@ def generate_script_scenes_with_ai(topic: str, language: str):
         scenes = json.loads(_strip_code_fence(raw_text))
 
         if not isinstance(scenes, list) or not (MIN_SCENES <= len(scenes) <= MAX_SCENES):
-            logger.warning("Gemini повернув невірну кількість сцен, використовуємо DEMO-шаблон")
-            return None
+            raise RuntimeError("Gemini повернув некоректну кількість сцен. Спробуйте іншу тему.")
 
         total_words = sum(len(str(scene.get("voice_text", "")).split()) for scene in scenes)
         if total_words > MAX_TOTAL_WORDS:
-            logger.warning(
-                "Gemini перевищив ліміт слів (%d > %d), використовуємо DEMO-шаблон",
-                total_words, MAX_TOTAL_WORDS,
+            raise RuntimeError(
+                f"Gemini повернув надто довгий сценарій ({total_words} слів; максимум {MAX_TOTAL_WORDS}). Спробуйте іншу тему."
             )
-            return None
 
         result = []
         for scene in scenes:
@@ -381,8 +376,8 @@ def generate_script_scenes_with_ai(topic: str, language: str):
             result.append(entry)
         return result
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        logger.warning("Gemini API недоступний (%s), використовуємо DEMO-шаблон", exc)
-        return None
+        logger.warning("Gemini API недоступний: %s", exc)
+        raise RuntimeError("Gemini API недоступний або повернув некоректну відповідь. Перевірте ключ і спробуйте ще раз.") from exc
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):
@@ -393,17 +388,17 @@ async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):
 def generate_voice_with_ai(text: str, output_path: str, language: str):
     """Синтезує озвучку через edge-tts (безкоштовно, без API-ключа).
 
-    Повертає шлях до збереженого mp3-файлу, або None - якщо бібліотека
-    не встановлена чи запит не вдався (тоді voice_generator створює
-    тестову тишу потрібної тривалості).
+    Повертає шлях до збереженого mp3-файлу. За помилки синтезу піднімає
+    виняток, щоб не підміняти озвучку беззвучним файлом.
     """
     if edge_tts is None:
-        return None
+        raise RuntimeError("Пакет edge-tts не встановлений. Встановіть залежності з requirements.txt.")
 
     voice = EDGE_TTS_VOICES.get(language, EDGE_TTS_VOICES["uk"])
     try:
         asyncio.run(_synthesize_with_edge_tts(text, voice, output_path))
         return output_path
     except Exception as exc:  # мережа/сервіс edge-tts можуть бути недоступні
-        logger.warning("edge-tts недоступний (%s), використовуємо тестову тишу", exc)
-        return None
+        logger.warning("edge-tts недоступний: %s", exc)
+        raise RuntimeError("Сервіс озвучки edge-tts недоступний. Спробуйте ще раз.") from exc
+

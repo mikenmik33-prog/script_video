@@ -444,9 +444,7 @@ function formatUpdatedAt(unixSeconds) {
 
 function renderIdeas(data) {
   const ideas = data.ideas || [];
-  ideasUpdated.textContent = data.source === "youtube"
-    ? formatUpdatedAt(data.last_updated)
-    : "Демо-ідеї (щоб бачити реальні тренди YouTube, додайте YOUTUBE_API_KEY)";
+  ideasUpdated.textContent = data.error || formatUpdatedAt(data.last_updated);
 
   if (ideas.length === 0) {
     ideasList.innerHTML = '<p class="ideas-loading">Ідей поки немає.</p>';
@@ -587,3 +585,4 @@ syncLanguageOptionUi(languageSelect.value);
 
 loadTrendingIdeas();
 setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);
+

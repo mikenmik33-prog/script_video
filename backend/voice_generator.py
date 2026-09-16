@@ -1,13 +1,10 @@
 """
 Генератор озвучки.
 
-Спочатку пробує реальний безкоштовний TTS (edge-tts, через ai.py).
-Якщо він недоступний (немає бібліотеки, немає інтернету, збій
-запиту), для сцени створюється "беззвучний" аудіофайл орієнтовної
-тривалості - це дозволяє конвеєру працювати навіть повністю офлайн.
+Використовує edge-tts через ai.py. Якщо сервіс недоступний, генерація
+завершується помилкою без створення беззвучного файла.
 
-Незалежно від джерела (реальний голос чи тиша), після генерації
-завжди вимірюється РЕАЛЬНА тривалість файлу через ffprobe і
+Після генерації завжди вимірюється РЕАЛЬНА тривалість файла через ffprobe і
 записується назад у scene["duration"]. Це головний механізм, який
 робить відео, аудіо й субтитри синхронізованими: довжина сцени в
 монтажі (editor.py) і таймінг субтитрів (subtitles.py) визначаються
@@ -52,21 +49,6 @@ def _probe_duration_seconds(path: str) -> float:
     return float(result.stdout.decode().strip())
 
 
-def _generate_silent_placeholder(duration: float, output_path: str):
-    # тиша генерується одразу з відступом (duration вже включає padding),
-    # тому окремий прохід для padding тут не потрібен - менше запусків
-    # FFmpeg = менше навантаження на CPU (важливо на слабких безкоштовних
-    # хостингах)
-    _run_ffmpeg([
-        "-f", "lavfi",
-        "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo",
-        "-t", str(duration + SCENE_PADDING_SECONDS),
-        "-c:a", "libmp3lame",
-        "-q:a", "9",
-        output_path,
-    ])
-
-
 def _apply_end_padding(path: str, padding_seconds: float):
     """Додає padding_seconds тиші в кінець аудіофайлу (на місці).
 
@@ -89,39 +71,30 @@ def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk"
     """Створює аудіофайл озвучки для однієї сцени та оновлює scene["duration"]
     реальною тривалістю цього файлу (озвучка + невелика пауза).
 
-    Повертає True, якщо це РЕАЛЬНА озвучка, або False, якщо edge-tts не
-    вдався і сцену довелось заповнити тишею (виклик має повідомити про
-    це користувачу - раніше такий збій губився тихо в логах сервера)."""
+    Повертає True після успішної реальної озвучки. За помилки синтезу
+    піднімає виняток і не створює беззвучну підміну."""
     ai_result = ai.generate_voice_with_ai(scene["voice_text"], output_path, language)
-    if ai_result is None:
-        _generate_silent_placeholder(scene["duration"], output_path)
-        succeeded = False
-    else:
-        # тривалість реальної озвучки наперед невідома - додаємо
-        # відступ окремим (єдиним) проходом
-        _apply_end_padding(output_path, SCENE_PADDING_SECONDS)
-        succeeded = True
+    # тривалість реальної озвучки наперед невідома - додаємо відступ окремим
+    # (єдиним) проходом.
+    _apply_end_padding(ai_result, SCENE_PADDING_SECONDS)
 
     scene["duration"] = round(_probe_duration_seconds(output_path), 2)
     scene["flow_duration"] = _nearest_flow_duration(scene["duration"])
-    return succeeded
+    return True
 
 
 def generate_all_voices(scenes: list, output_dir: str, language: str = "uk") -> tuple:
     """Генерує аудіофайли озвучки для всіх сцен (мутує scene["duration"]
-    кожної сцени реальною тривалістю). Повертає (шляхи, кількість_сцен_із_тишею).
+    кожної сцени реальною тривалістю). Повертає (шляхи, 0).
 
     Навмисно ПОСЛІДОВНО, не паралельно - кілька одночасних
-    WebSocket-з'єднань до edge-tts виявились ненадійними (запит тихо
-    провалювався, і сцена без жодної помилки в UI отримувала беззвучну
-    заглушку замість реального голосу)."""
+    WebSocket-з'єднань до edge-tts виявились ненадійними."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
-    silent_count = 0
     for scene in scenes:
         filename = f"voice_{scene['scene']:02d}.mp3"
         path = os.path.join(output_dir, filename)
-        if not generate_voice_for_scene(scene, path, language):
-            silent_count += 1
+        generate_voice_for_scene(scene, path, language)
         paths.append(path)
-    return paths, silent_count
+    return paths, 0
+

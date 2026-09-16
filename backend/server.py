@@ -1,5 +1,5 @@
 """
-FastAPI backend для AI Video Generator (DEMO-режим).
+FastAPI backend для AI Video Generator.
 
 Реалізує конвеєр підготовки матеріалів у 2 етапи з ручним
 затвердженням користувача:
@@ -73,7 +73,7 @@ def _start_cleanup():
     thread.start()
 
 
-app = FastAPI(title="AI Video Generator (DEMO)")
+app = FastAPI(title="AI Video Generator")
 
 app.add_middleware(
     CORSMiddleware,
@@ -380,3 +380,4 @@ def serve_js():
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
+

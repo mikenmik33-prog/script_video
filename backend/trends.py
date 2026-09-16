@@ -21,10 +21,8 @@ YouTube" (chart=mostPopular) шукаємо трендові відео САМЕ
 "оновлення при заході на сторінку"), а надалі лише вручну кнопкою чи
 за фоновим розкладом.
 
-Якщо YOUTUBE_API_KEY не задано (або запит не вдався), повертається
-невеликий локальний DEMO-список ідей цієї ж ніші - так само, як інші
-модулі конвеєра, ця частина ніколи не "падає" через відсутність чи
-збій зовнішнього сервісу.
+Потрібен YOUTUBE_API_KEY. За відсутності ключа чи помилки API локальні
+ідеї не підставляються: клієнт отримує порожній список і опис проблеми.
 """
 
 import json
@@ -58,25 +56,11 @@ LANGUAGES = {
         "region": "UA",
         "relevance_language": "uk",
         "niche_queries": ["цікаві факти", "наукові факти", "загадкові історії факти"],
-        "demo_ideas": [
-            {"title": "Що буде, якщо Земля перестане обертатися?", "views": None, "thumbnail": None},
-            {"title": "Найдивовижніші факти про космос", "views": None, "thumbnail": None},
-            {"title": "Що станеться, якщо зникнуть усі бджоли?", "views": None, "thumbnail": None},
-            {"title": "Найзагадковіші історії, які досі не розкриті", "views": None, "thumbnail": None},
-            {"title": "Що буде, якщо викопати тунель крізь Землю?", "views": None, "thumbnail": None},
-        ],
     },
     "en": {
         "region": "US",
         "relevance_language": "en",
         "niche_queries": ["interesting facts", "science facts", "mysterious unsolved stories"],
-        "demo_ideas": [
-            {"title": "What would happen if Earth stopped spinning?", "views": None, "thumbnail": None},
-            {"title": "The most mind-blowing facts about space", "views": None, "thumbnail": None},
-            {"title": "What would happen if all bees disappeared?", "views": None, "thumbnail": None},
-            {"title": "The most mysterious unsolved stories ever", "views": None, "thumbnail": None},
-            {"title": "What if you dug a tunnel through the Earth?", "views": None, "thumbnail": None},
-        ],
     },
 }
 
@@ -90,7 +74,7 @@ MAX_IDEAS = 20
 REFRESH_INTERVAL_SECONDS = 3 * 60 * 60  # раз на 3 години
 
 _cache_lock = threading.Lock()
-_cached_ideas = {lang: list(cfg["demo_ideas"]) for lang, cfg in LANGUAGES.items()}
+_cached_ideas = {lang: [] for lang in LANGUAGES}
 _last_updated = {lang: None for lang in LANGUAGES}
 
 
@@ -168,6 +152,7 @@ def refresh_ideas(language: str = DEFAULT_LANGUAGE) -> bool:
     language = _normalize_language(language)
 
     if not YOUTUBE_API_KEY:
+        logger.warning("YOUTUBE_API_KEY не задано; трендові ідеї недоступні")
         return False
 
     try:
@@ -191,7 +176,8 @@ def get_ideas(language: str = DEFAULT_LANGUAGE) -> dict:
         return {
             "ideas": list(_cached_ideas[language]),
             "last_updated": _last_updated[language],
-            "source": "youtube" if YOUTUBE_API_KEY else "demo",
+            "source": "youtube",
+            "error": None if YOUTUBE_API_KEY else "Не задано YOUTUBE_API_KEY.",
         }
 
 
@@ -212,3 +198,4 @@ def start_background_refresh():
         refresh_ideas(language)
     thread = threading.Thread(target=_background_refresh_loop, daemon=True)
     thread.start()
+
