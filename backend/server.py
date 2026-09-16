@@ -1,8 +1,10 @@
 """
 FastAPI backend для AI Video Generator (DEMO-режим).
 
-Реалізує конвеєр підготовки матеріалів:
-тема -> сценарій -> сцени -> візуал -> озвучка -> субтитри -> файли.
+Реалізує конвеєр підготовки матеріалів у 3 етапи з ручним
+затвердженням користувача між ними:
+тема -> сценарій+озвучка -> [затверджую] -> візуал -> [затверджую] ->
+субтитри+файли.
 
 Автоматичний монтаж (FFmpeg, editor.py) прибрано ПОВНІСТЮ - і з
 основного пайплайна, і з тестової панелі - він був найважчим CPU-
@@ -46,7 +48,14 @@ VIDEOS_DIR = os.path.join(OUTPUT_DIR, "_scene_videos")
 STATE_DIR = os.path.join(BASE_DIR, "state")
 
 ALLOWED_DURATIONS = (30, 60, 90)
-STAGE_ORDER = ["script", "scenes", "visual", "voice", "subtitles", "export"]
+
+# Пайплайн розбитий на 3 етапи з ручним затвердженням користувачем між
+# ними (script -> ЗАТВЕРДЖУЮ -> visual -> ЗАТВЕРДЖУЮ -> export), а не
+# один суцільний прогін - користувач хоче бачити й правити текст сцен
+# ДО генерації картинок, і бачити картинки ДО фінального експорту.
+# Озвучка навмисно в тому ж етапі, що й сценарій (а не після картинок) -
+# так користувач одразу бачить реальну тривалість кожної репліки.
+STAGE_ORDER = ["script", "voice", "visual", "export"]
 
 # Максимальний вік файлу/задачі на диску і як часто перевіряти - без
 # цього кожен клік "оживити сцену" накопичувався б на диску назавжди,
@@ -193,12 +202,18 @@ def _new_job_state(request: GenerateRequest) -> dict:
         "topic": request.topic,
         "duration": request.duration,
         "language": request.language,
+        # "processing" -> "script_review" (користувач редагує/затверджує
+        # текст сцен) -> "processing" -> "photo_review" (затверджує
+        # картинки) -> "processing" -> "done"/"error"
         "status": "processing",
         "progress": 0,
         "current_stage": STAGE_ORDER[0],
         "stages": {stage: "pending" for stage in STAGE_ORDER},
         "error": None,
         "script": None,
+        "voice_files": None,
+        "silent_voice_count": 0,
+        "scene_images": None,
         "result": None,
         "created_at": time.time(),
     }
@@ -242,17 +257,18 @@ def _make_stage_progress_callback(job: dict, stage: str):
     return callback
 
 
-def run_pipeline(job_id: str):
-    """Виконує весь конвеєр генерації відео для однієї задачі.
-
-    FastAPI/Starlette запускає звичайні (не async) фонові задачі в
-    окремому потоці, тому цей блокуючий код (FFmpeg тощо) не заважає
-    іншим запитам (наприклад, опитуванню статусу).
-    """
-    job = jobs[job_id]
+def _job_dirs(job_id: str) -> tuple:
     job_dir = os.path.join(OUTPUT_DIR, job_id)
-    scenes_dir = os.path.join(job_dir, "scenes")
-    audio_dir = os.path.join(job_dir, "audio")
+    return job_dir, os.path.join(job_dir, "scenes"), os.path.join(job_dir, "audio")
+
+
+def run_script_stage(job_id: str):
+    """Етап 1: сценарій + озвучка (щоб одразу бачити реальну тривалість
+    реплік). Завершується статусом "script_review" - конвеєр ЗУПИНЯЄТЬСЯ
+    і чекає, поки користувач перегляне/відредагує текст сцен і натисне
+    "Затвердити сценарій" (POST /api/script/{job_id}/approve)."""
+    job = jobs[job_id]
+    _, _, audio_dir = _job_dirs(job_id)
 
     try:
         _set_stage(job, "script", "active")
@@ -260,27 +276,56 @@ def run_pipeline(job_id: str):
         job["script"] = script
         _set_stage(job, "script", "done")
 
-        _set_stage(job, "scenes", "active")
-        scenes = script["scenes"]
-        _set_stage(job, "scenes", "done")
-
-        _set_stage(job, "visual", "active")
-        scene_images = scene_generator.generate_all_scenes(
-            scenes, scenes_dir,
-            progress_callback=_make_stage_progress_callback(job, "visual"),
-        )
-        _set_stage(job, "visual", "done")
-
         _set_stage(job, "voice", "active")
-        voice_files, silent_voice_count = voice_generator.generate_all_voices(scenes, audio_dir, job["language"])
+        voice_files, silent_voice_count = voice_generator.generate_all_voices(
+            script["scenes"], audio_dir, job["language"],
+        )
+        job["voice_files"] = [f"/output/{job_id}/audio/{os.path.basename(p)}" for p in voice_files]
+        job["silent_voice_count"] = silent_voice_count
         _set_stage(job, "voice", "done")
 
-        _set_stage(job, "subtitles", "active")
-        srt_path = os.path.join(job_dir, "subtitles.srt")
-        subtitles.generate_srt(scenes, srt_path)
-        _set_stage(job, "subtitles", "done")
+        job["status"] = "script_review"
+    except Exception as exc:  # локальний прототип: показуємо причину користувачу в UI
+        job["status"] = "error"
+        job["error"] = str(exc)
+    _save_jobs()
 
+
+def run_visual_stage(job_id: str):
+    """Етап 2: генерація картинок сцен (після затвердження сценарію).
+    Завершується статусом "photo_review" - чекає підтвердження фото
+    (POST /api/photos/{job_id}/approve)."""
+    job = jobs[job_id]
+    _, scenes_dir, _ = _job_dirs(job_id)
+
+    try:
+        _set_stage(job, "visual", "active")
+        scene_images = scene_generator.generate_all_scenes(
+            job["script"]["scenes"], scenes_dir,
+            progress_callback=_make_stage_progress_callback(job, "visual"),
+        )
+        job["scene_images"] = [f"/output/{job_id}/scenes/{os.path.basename(p)}" for p in scene_images]
+        _set_stage(job, "visual", "done")
+
+        job["status"] = "photo_review"
+    except Exception as exc:
+        job["status"] = "error"
+        job["error"] = str(exc)
+    _save_jobs()
+
+
+def run_finalize_stage(job_id: str):
+    """Етап 3: субтитри + експорт файлів (після затвердження фото).
+    Завершується статусом "done" - фінальний результат готовий."""
+    job = jobs[job_id]
+    job_dir, _, _ = _job_dirs(job_id)
+    script = job["script"]
+
+    try:
         _set_stage(job, "export", "active")
+        srt_path = os.path.join(job_dir, "subtitles.srt")
+        subtitles.generate_srt(script["scenes"], srt_path)
+
         script_path = os.path.join(job_dir, "script.json")
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, ensure_ascii=False, indent=2)
@@ -291,11 +336,11 @@ def run_pipeline(job_id: str):
         job["result"] = {
             "script_url": f"/output/{job_id}/script.json",
             "subtitles_url": f"/output/{job_id}/subtitles.srt",
-            "scene_images": [f"/output/{job_id}/scenes/{os.path.basename(p)}" for p in scene_images],
-            "voice_files": [f"/output/{job_id}/audio/{os.path.basename(p)}" for p in voice_files],
-            "silent_voice_count": silent_voice_count,
+            "scene_images": job["scene_images"],
+            "voice_files": job["voice_files"],
+            "silent_voice_count": job["silent_voice_count"],
         }
-    except Exception as exc:  # локальний прототип: показуємо причину користувачу в UI
+    except Exception as exc:
         job["status"] = "error"
         job["error"] = str(exc)
     _save_jobs()
@@ -326,7 +371,7 @@ def generate_video(request: GenerateRequest, background_tasks: BackgroundTasks):
     jobs[job_id] = _new_job_state(request)
     _save_jobs()
 
-    background_tasks.add_task(run_pipeline, job_id)
+    background_tasks.add_task(run_script_stage, job_id)
     return {"job_id": job_id}
 
 
@@ -358,6 +403,94 @@ def get_result(job_id: str):
     }
 
 
+# --- Етап 1: перегляд/редагування сценарію ДО генерації картинок -----
+
+
+@app.get("/api/script/{job_id}")
+def get_script_for_review(job_id: str):
+    job = jobs.get(job_id)
+    if job is None or job["script"] is None:
+        raise HTTPException(404, "Сценарій ще не готовий")
+    return {
+        "topic": job["topic"],
+        "script": job["script"],
+        "voice_files": job["voice_files"],
+        "silent_voice_count": job["silent_voice_count"],
+    }
+
+
+class SceneEdit(BaseModel):
+    scene: int
+    voice_text: str
+    visual_prompt: str
+
+
+class ApproveScriptRequest(BaseModel):
+    scenes: list[SceneEdit]
+
+
+@app.post("/api/script/{job_id}/approve")
+def approve_script(job_id: str, request: ApproveScriptRequest, background_tasks: BackgroundTasks):
+    job = jobs.get(job_id)
+    if job is None or job["status"] != "script_review":
+        raise HTTPException(409, "Сценарій зараз не на розгляді")
+
+    scenes_by_number = {s["scene"]: s for s in job["script"]["scenes"]}
+    _, _, audio_dir = _job_dirs(job_id)
+
+    for edit in request.scenes:
+        scene = scenes_by_number.get(edit.scene)
+        if scene is None:
+            continue
+        scene["visual_prompt"] = edit.visual_prompt.strip()
+        new_voice_text = edit.voice_text.strip()
+        if new_voice_text != scene["voice_text"]:
+            # текст цієї репліки відредаговано вручну - перегенеровуємо
+            # ЛИШЕ її аудіо (і subtitle - при ручному редагуванні втрачаємо
+            # розрізнення "цифри словами/цифрами", subtitle стає тим самим
+            # текстом), решту сцен не чіпаємо, щоб не витрачати час/квоту
+            # edge-tts даремно
+            scene["voice_text"] = new_voice_text
+            scene["subtitle"] = new_voice_text
+            voice_path = os.path.join(audio_dir, f"voice_{scene['scene']:02d}.mp3")
+            voice_generator.generate_voice_for_scene(scene, voice_path, job["language"])
+
+    job["script"]["full_text"] = " ".join(s["voice_text"] for s in job["script"]["scenes"])
+    job["status"] = "processing"
+    _save_jobs()
+
+    background_tasks.add_task(run_visual_stage, job_id)
+    return {"ok": True}
+
+
+# --- Етап 2: перегляд/перегенерація картинок ДО фінального експорту --
+
+
+@app.get("/api/photos/{job_id}")
+def get_photos_for_review(job_id: str):
+    job = jobs.get(job_id)
+    if job is None or job["scene_images"] is None:
+        raise HTTPException(404, "Картинки ще не готові")
+    return {
+        "topic": job["topic"],
+        "script": job["script"],
+        "scene_images": job["scene_images"],
+    }
+
+
+@app.post("/api/photos/{job_id}/approve")
+def approve_photos(job_id: str, background_tasks: BackgroundTasks):
+    job = jobs.get(job_id)
+    if job is None or job["status"] != "photo_review":
+        raise HTTPException(409, "Фото зараз не на розгляді")
+
+    job["status"] = "processing"
+    _save_jobs()
+
+    background_tasks.add_task(run_finalize_stage, job_id)
+    return {"ok": True}
+
+
 class RegenerateImageRequest(BaseModel):
     job_id: str
     scene_number: int
@@ -369,10 +502,11 @@ def regenerate_scene_image(request: RegenerateImageRequest):
     """Перегенерує картинку однієї сцени за (можливо відредагованим)
     промтом - щоб користувач міг виправити невдале зображення ДО того,
     як натисне платне «Оживити сцену» (image-to-video), яке саме з цієї
-    картинки й починається."""
+    картинки й починається. Працює і на етапі photo_review (до
+    фінального затвердження), і пізніше, коли задача вже "done"."""
     job = jobs.get(request.job_id)
-    if job is None or job["status"] != "done":
-        raise HTTPException(404, "Задачу не знайдено або вона ще не завершена")
+    if job is None or job["status"] not in ("photo_review", "done"):
+        raise HTTPException(404, "Задачу не знайдено або картинки ще не готові")
 
     scenes_dir = os.path.join(OUTPUT_DIR, request.job_id, "scenes")
     output_path = os.path.join(scenes_dir, f"scene_{request.scene_number:02d}.png")

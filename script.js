@@ -20,6 +20,17 @@ const progressBarFill = document.getElementById("progress-bar-fill");
 const progressPercent = document.getElementById("progress-percent");
 const resultPanel = document.getElementById("result-panel");
 
+const scriptReviewPanel = document.getElementById("script-review-panel");
+const scriptReviewScenes = document.getElementById("script-review-scenes");
+const scriptReviewVoiceWarning = document.getElementById("script-review-voice-warning");
+const approveScriptButton = document.getElementById("approve-script-button");
+const scriptReviewStatus = document.getElementById("script-review-status");
+
+const photoReviewPanel = document.getElementById("photo-review-panel");
+const photoReviewScenes = document.getElementById("photo-review-scenes");
+const approvePhotosButton = document.getElementById("approve-photos-button");
+const photoReviewStatus = document.getElementById("photo-review-status");
+
 const ideasList = document.getElementById("ideas-list");
 const ideasUpdated = document.getElementById("ideas-updated");
 const refreshIdeasButton = document.getElementById("refresh-ideas-button");
@@ -100,6 +111,14 @@ async function pollStatus(jobId) {
     } else if (status.status === "error") {
       stopPolling();
       showFormError(status.error || "Сталася помилка під час генерації відео");
+      setFormDisabled(false);
+    } else if (status.status === "script_review") {
+      stopPolling();
+      await loadScriptReview(jobId);
+      setFormDisabled(false);
+    } else if (status.status === "photo_review") {
+      stopPolling();
+      await loadPhotoReview(jobId);
       setFormDisabled(false);
     } else {
       pollTimerId = setTimeout(() => pollStatus(jobId), POLL_INTERVAL_MS);
@@ -186,10 +205,15 @@ function blobToDataUrl(blob) {
   });
 }
 
-// Оживлення окремої сцени рухом через fal.ai (image-to-video) -
-// вибіркова платна дія для однієї конкретної сцени, лише за явним
-// підтвердженням.
-function createSceneVideoCard(scene, imageUrl, jobId) {
+// Перегенерація картинки сцени - щоб виправити невдалий/невідповідний
+// темі результат. Спільна для панелі перегляду фото (photo_review) і
+// фінальної панелі результату (де з цієї ж картинки ще й можна почати
+// платне "Оживити сцену"). Повертає {card, state} - state.imageUrl
+// завжди містить АКТУАЛЬНИЙ url картинки (оновлюється після кожної
+// перегенерації), картки, які додають щось СВОЄ під низ (наприклад
+// кнопку відео), читають саме його.
+function createImageRegenerateSection(scene, imageUrl, jobId) {
+  const state = { imageUrl };
   const card = document.createElement("div");
   card.className = "test-scene-card";
 
@@ -202,9 +226,6 @@ function createSceneVideoCard(scene, imageUrl, jobId) {
   img.src = imageUrl;
   card.appendChild(img);
 
-  // Перегенерація картинки сцени - щоб виправити невдалий/невідповідний
-  // темі результат ДО того, як з нього почнеться платне "Оживити сцену"
-  // (image-to-video завжди починається саме з цієї картинки).
   const imagePromptLabel = document.createElement("label");
   imagePromptLabel.textContent = "Промт картинки (можна відредагувати):";
   card.appendChild(imagePromptLabel);
@@ -244,7 +265,7 @@ function createSceneVideoCard(scene, imageUrl, jobId) {
       }
       const { image_url: newImageUrl } = await response.json();
       img.src = newImageUrl;
-      imageUrl = newImageUrl;
+      state.imageUrl = newImageUrl;
       regenerateStatus.textContent = "Готово.";
     } catch (err) {
       regenerateStatus.textContent = `Помилка: ${err.message}`;
@@ -252,6 +273,15 @@ function createSceneVideoCard(scene, imageUrl, jobId) {
       regenerateButton.disabled = false;
     }
   });
+
+  return { card, state };
+}
+
+// Оживлення окремої сцени рухом через fal.ai (image-to-video) -
+// вибіркова платна дія для однієї конкретної сцени, лише за явним
+// підтвердженням.
+function createSceneVideoCard(scene, imageUrl, jobId) {
+  const { card, state } = createImageRegenerateSection(scene, imageUrl, jobId);
 
   const promptLabel = document.createElement("label");
   promptLabel.textContent = "Промт для руху (можна дописати опис дії/камери):";
@@ -286,7 +316,7 @@ function createSceneVideoCard(scene, imageUrl, jobId) {
     button.disabled = true;
     statusText.textContent = "Завантажуємо картинку сцени...";
     try {
-      const imageBlob = await (await fetch(imageUrl)).blob();
+      const imageBlob = await (await fetch(state.imageUrl)).blob();
       const imageData = await blobToDataUrl(imageBlob);
 
       statusText.textContent = "Надсилаємо запит до fal.ai...";
@@ -345,11 +375,161 @@ function addFileLink(container, label, url) {
   container.appendChild(li);
 }
 
+// --- Етап 1: перегляд/редагування сценарію ДО генерації картинок ---
+
+async function loadScriptReview(jobId) {
+  const response = await fetch(`/api/script/${jobId}`);
+  if (!response.ok) {
+    throw new Error("Не вдалося завантажити сценарій");
+  }
+  const data = await response.json();
+  renderScriptReview(data, jobId);
+}
+
+function renderScriptReview(data, jobId) {
+  const { script, silent_voice_count: silentVoiceCount } = data;
+
+  if (silentVoiceCount > 0) {
+    scriptReviewVoiceWarning.textContent =
+      `⚠️ ${silentVoiceCount} із ${script.scenes.length} сцен озвучено тишею ` +
+      `(edge-tts не відповів) - можна відредагувати текст, щоб спробувати ще раз.`;
+    scriptReviewVoiceWarning.hidden = false;
+  } else {
+    scriptReviewVoiceWarning.hidden = true;
+  }
+
+  scriptReviewScenes.innerHTML = "";
+  script.scenes.forEach((scene) => {
+    const card = document.createElement("div");
+    card.className = "test-scene-card";
+
+    const header = document.createElement("h3");
+    header.textContent = `Сцена ${scene.scene} (${scene.duration}с)`;
+    card.appendChild(header);
+
+    const label = document.createElement("label");
+    label.textContent = "Текст репліки:";
+    card.appendChild(label);
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "test-prompt-input";
+    textarea.rows = 3;
+    textarea.value = scene.voice_text;
+    textarea.dataset.scene = scene.scene;
+    textarea.dataset.field = "voice_text";
+    card.appendChild(textarea);
+
+    const promptLabel = document.createElement("label");
+    promptLabel.textContent = "Промт картинки:";
+    card.appendChild(promptLabel);
+
+    const promptTextarea = document.createElement("textarea");
+    promptTextarea.className = "test-prompt-input";
+    promptTextarea.rows = 3;
+    promptTextarea.value = scene.visual_prompt;
+    promptTextarea.dataset.scene = scene.scene;
+    promptTextarea.dataset.field = "visual_prompt";
+    card.appendChild(promptTextarea);
+
+    scriptReviewScenes.appendChild(card);
+  });
+
+  scriptReviewStatus.hidden = true;
+  scriptReviewStatus.textContent = "";
+  approveScriptButton.disabled = false;
+  scriptReviewPanel.hidden = false;
+  approveScriptButton.onclick = () => handleApproveScript(jobId);
+}
+
+async function handleApproveScript(jobId) {
+  const scenesByNumber = {};
+  scriptReviewScenes.querySelectorAll("textarea").forEach((textarea) => {
+    const sceneNumber = Number(textarea.dataset.scene);
+    if (!scenesByNumber[sceneNumber]) {
+      scenesByNumber[sceneNumber] = { scene: sceneNumber, voice_text: "", visual_prompt: "" };
+    }
+    scenesByNumber[sceneNumber][textarea.dataset.field] = textarea.value;
+  });
+
+  approveScriptButton.disabled = true;
+  scriptReviewStatus.hidden = false;
+  scriptReviewStatus.textContent = "Затверджуємо сценарій, запускаємо генерацію картинок...";
+  try {
+    const response = await fetch(`/api/script/${jobId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenes: Object.values(scenesByNumber) }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Не вдалося затвердити сценарій");
+    }
+    scriptReviewPanel.hidden = true;
+    resetStages();
+    pollStatus(jobId);
+  } catch (err) {
+    scriptReviewStatus.textContent = `Помилка: ${err.message}`;
+    approveScriptButton.disabled = false;
+  }
+}
+
+// --- Етап 2: перегляд/перегенерація картинок ДО фінального експорту ---
+
+async function loadPhotoReview(jobId) {
+  const response = await fetch(`/api/photos/${jobId}`);
+  if (!response.ok) {
+    throw new Error("Не вдалося завантажити картинки сцен");
+  }
+  const data = await response.json();
+  renderPhotoReview(data, jobId);
+}
+
+function renderPhotoReview(data, jobId) {
+  const { script, scene_images: sceneImages } = data;
+
+  photoReviewScenes.innerHTML = "";
+  sceneImages.forEach((imageUrl, index) => {
+    const scene = script.scenes[index];
+    const { card } = createImageRegenerateSection(scene, imageUrl, jobId);
+    photoReviewScenes.appendChild(card);
+  });
+
+  photoReviewStatus.hidden = true;
+  photoReviewStatus.textContent = "";
+  approvePhotosButton.disabled = false;
+  photoReviewPanel.hidden = false;
+  approvePhotosButton.onclick = () => handleApprovePhotos(jobId);
+}
+
+async function handleApprovePhotos(jobId) {
+  approvePhotosButton.disabled = true;
+  photoReviewStatus.hidden = false;
+  photoReviewStatus.textContent = "Готуємо субтитри й фінальні файли...";
+  try {
+    const response = await fetch(`/api/photos/${jobId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Не вдалося затвердити фото");
+    }
+    photoReviewPanel.hidden = true;
+    resetStages();
+    pollStatus(jobId);
+  } catch (err) {
+    photoReviewStatus.textContent = `Помилка: ${err.message}`;
+    approvePhotosButton.disabled = false;
+  }
+}
+
 async function handleFormSubmit(event) {
   event.preventDefault();
   clearFormError();
   resetStages();
   resultPanel.hidden = true;
+  scriptReviewPanel.hidden = true;
+  photoReviewPanel.hidden = true;
 
   const formData = new FormData(form);
   const payload = {

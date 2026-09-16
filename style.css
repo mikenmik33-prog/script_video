@@ -55,7 +55,9 @@ body {
   padding: 24px;
 }
 
-.ideas-panel {
+.ideas-panel,
+.script-review-panel,
+.photo-review-panel {
   margin: 24px 40px;
 }
 

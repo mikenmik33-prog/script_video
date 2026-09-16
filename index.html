@@ -8,7 +8,7 @@
 <body>
   <header class="topbar">
     <h1>AI Video Generator</h1>
-    <p class="subtitle">Ідея → сценарій → сцени → візуал → озвучка → субтитри → готові файли</p>
+    <p class="subtitle">Ідея → сценарій+озвучка → (затвердити) → візуал → (затвердити) → готові файли</p>
   </header>
 
   <section class="panel ideas-panel">
@@ -68,11 +68,9 @@
 
       <ol id="stage-list" class="stage-list">
         <li data-stage="script"><span class="stage-icon">○</span> Генерація сценарію</li>
-        <li data-stage="scenes"><span class="stage-icon">○</span> Розбиття на сцени</li>
-        <li data-stage="visual"><span class="stage-icon">○</span> Генерація візуалу</li>
         <li data-stage="voice"><span class="stage-icon">○</span> Озвучка</li>
-        <li data-stage="subtitles"><span class="stage-icon">○</span> Субтитри</li>
-        <li data-stage="export"><span class="stage-icon">○</span> Підготовка файлів</li>
+        <li data-stage="visual"><span class="stage-icon">○</span> Генерація візуалу</li>
+        <li data-stage="export"><span class="stage-icon">○</span> Субтитри й файли</li>
       </ol>
 
       <div class="progress-bar-track">
@@ -105,6 +103,32 @@
       <ul id="result-files" class="file-list"></ul>
     </section>
   </main>
+
+  <section class="panel script-review-panel" id="script-review-panel" hidden>
+    <h2>Перегляньте сценарій</h2>
+    <p class="subtitle">
+      Відредагуйте текст будь-якої сцени, якщо потрібно (озвучка для
+      зміненого тексту перегенерується автоматично), і натисніть
+      «Затвердити сценарій» - після цього почнеться генерація картинок.
+    </p>
+    <p id="script-review-voice-warning" class="error-message" hidden></p>
+    <div id="script-review-scenes" class="test-scenes-list"></div>
+    <button type="button" id="approve-script-button" class="test-continue-button">Затвердити сценарій, генерувати фото</button>
+    <p id="script-review-status" class="error-message" hidden></p>
+  </section>
+
+  <section class="panel photo-review-panel" id="photo-review-panel" hidden>
+    <h2>Перегляньте фото сцен</h2>
+    <p class="subtitle">
+      Не сподобалась картинка сцени? Відредагуйте промт і натисніть
+      «Перегенерувати фото» - лише для цієї сцени. Коли всі фото
+      влаштують, натисніть «Затвердити всі фото» - після цього
+      підготуються субтитри й фінальні файли.
+    </p>
+    <div id="photo-review-scenes" class="test-scenes-list"></div>
+    <button type="button" id="approve-photos-button" class="test-continue-button">Затвердити всі фото, йти далі</button>
+    <p id="photo-review-status" class="error-message" hidden></p>
+  </section>
 
   <script src="script.js"></script>
 </body>
