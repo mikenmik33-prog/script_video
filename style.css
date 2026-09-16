@@ -400,6 +400,13 @@ button#submit-button:disabled {
   line-height: 1.5;
 }
 
+.translation-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: -4px 0 4px;
+}
+
 .scene-list {
   padding-left: 20px;
   font-size: 13px;

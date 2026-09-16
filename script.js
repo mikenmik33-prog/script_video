@@ -276,6 +276,14 @@ function renderScriptReview(data, jobId) {
     scriptReviewVoiceWarning.hidden = true;
   }
 
+  const scriptReviewFullTextUk = document.getElementById("script-review-full-text-uk");
+  if (script.full_text_uk) {
+    scriptReviewFullTextUk.textContent = `Переклад укр.: ${script.full_text_uk}`;
+    scriptReviewFullTextUk.hidden = false;
+  } else {
+    scriptReviewFullTextUk.hidden = true;
+  }
+
   scriptReviewScenes.innerHTML = "";
   script.scenes.forEach((scene) => {
     const card = document.createElement("div");
@@ -302,6 +310,13 @@ function renderScriptReview(data, jobId) {
     textarea.dataset.scene = scene.scene;
     textarea.dataset.field = "voice_text";
     card.appendChild(textarea);
+
+    if (scene.translation_uk) {
+      const translationNote = document.createElement("p");
+      translationNote.className = "translation-note";
+      translationNote.textContent = `Переклад укр.: ${scene.translation_uk}`;
+      card.appendChild(translationNote);
+    }
 
     const promptLabel = document.createElement("label");
     promptLabel.textContent = "Детальний промт сцени (для Google Flow):";
