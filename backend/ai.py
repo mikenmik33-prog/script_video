@@ -2,41 +2,28 @@
 Централізований модуль для роботи із зовнішніми AI-сервісами.
 
 Це єдине місце, яке потрібно буде змінити, коли підключатимуться нові
-AI-сервіси (наприклад платна генерація зображень/відео вищої якості).
+AI-сервіси.
 
-- Сценарій (текст + промти сцен): Gemini API (потрібен GEMINI_API_KEY,
-  безкоштовний).
-- Візуал: fal.ai (модель FLUX.1 [schnell], той самий FAL_API_KEY, що
-  й для відео) - платно, копійки за картинку (~$0.003-0.025). Раніше
-  тут був безкоштовний Hugging Face, але той має місячну квоту, яка
-  регулярно вичерпувалась (HTTP 402) - користувач свідомо обрав
-  перейти повністю на платний fal.ai замість очікування щомісячного
-  оновлення ліміту. Pollinations.ai як резерв теж пробували раніше,
-  але він завжди додає водяний знак (навіть з токеном) - тому
-  прибраний назавжди. Якщо fal.ai недоступний -
-  generate_visual_with_ai() повертає None (тоді сцена отримує тестову
-  заглушку).
-  Примітка: генерація зображень безпосередньо через Gemini ("Nano
-  Banana") існує, але на безкоштовному тарифі Gemini її квота
-  дорівнює нулю (потрібен платний білінг).
+- Сценарій (текст + детальний промт сцени + рекомендований промт руху
+  камери): Gemini API (потрібен GEMINI_API_KEY, безкоштовний).
 - Озвучка: edge-tts - безкоштовний, без API-ключа (використовує
   публічний сервіс синтезу мовлення Microsoft Edge). Це неофіційна
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
   (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
   та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
-- Відео: НЕ генерується застосунком. Раніше було через fal.ai
-  (image-to-video, MiniMax Hailuo), але користувач вирішив оживляти
-  сцени вручну через Google Flow (той функціонал видалено за
-  проханням). Кожна сцена все ще має власний рекомендований промт руху
-  камери (motion_prompt, підбирає Gemini з backend/camera_movements.py) -
-  готовий текст, який користувач може скопіювати в будь-який зовнішній
-  відео-генератор (Flow тощо).
+- Картинки й відео: застосунок НЕ генерує ні те, ні інше (за рішенням
+  користувача - платна генерація картинок через fal.ai виявилась
+  зайвим кроком). Замість цього кожна сцена має готовий детальний
+  текстовий промт (visual_prompt) і рекомендований промт руху камери
+  (motion_prompt, підбирає Gemini з backend/camera_movements.py) -
+  користувач сам вставляє їх у Google Flow (чи інший text-to-video
+  інструмент) і отримує готове відео напряму.
 
-Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
-збій відповіді) - відповідна generate_*_with_ai() повертає None, і
-викликач (script_generator / scene_generator / voice_generator)
-переходить на локальну DEMO-заглушку. Це гарантує, що застосунок
-ніколи не "падає" через проблеми з зовнішнім сервісом.
+Якщо AI-виклик не вдається (немає ключа, немає інтернету, збій
+відповіді) - відповідна generate_*_with_ai() повертає None, і викликач
+(script_generator / voice_generator) переходить на локальну
+DEMO-заглушку. Це гарантує, що застосунок ніколи не "падає" через
+проблеми з зовнішнім сервісом.
 """
 
 import asyncio
@@ -62,19 +49,10 @@ logger = logging.getLogger(__name__)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
-FAL_API_KEY = os.getenv("FAL_API_KEY", "").strip()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
-
-# fal.ai - синхронний (швидкий) ендпоінт для генерації картинок,
-# оплата за фактичне використання
-FAL_SYNC_BASE = "https://fal.run"
-FAL_IMAGE_MODEL = "fal-ai/flux/schnell"
-FAL_IMAGE_TIMEOUT_SECONDS = 60
-
-IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з scene_generator.py
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -322,75 +300,6 @@ def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.warning("Gemini API недоступний (%s), використовуємо DEMO-шаблон", exc)
         return None
-
-
-def _generate_image_with_fal(prompt: str, output_path: str):
-    """Генерує зображення через fal.ai (модель FLUX.1 [schnell]) -
-    синхронний ендпоінт (fal.run, не queue.fal.run - ця модель швидка,
-    результат готовий одразу в тілі відповіді, без опитування статусу).
-
-    Кидає виняток при збої (ловить викликач generate_visual_with_ai)."""
-    submit_payload = json.dumps({
-        "prompt": prompt,
-        "image_size": "portrait_16_9",  # найближчий до вертикального 9:16 пресет
-    }).encode("utf-8")
-
-    request = urllib.request.Request(
-        f"{FAL_SYNC_BASE}/{FAL_IMAGE_MODEL}",
-        data=submit_payload,
-        headers={**_fal_auth_headers(), "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=FAL_IMAGE_TIMEOUT_SECONDS) as response:
-        result_body = json.loads(response.read().decode("utf-8"))
-
-    image_url = result_body["images"][0]["url"]
-    with urllib.request.urlopen(image_url, timeout=30) as response:
-        image_bytes = response.read()
-    with open(output_path, "wb") as f:
-        f.write(image_bytes)
-    return output_path
-
-
-def generate_visual_with_ai(prompt: str, output_path: str):
-    """Генерує зображення сцени через fal.ai (модель FLUX.1 [schnell]) -
-    платно, копійки за картинку (~$0.003-0.025).
-
-    Резервні варіанти прибрано назавжди: Hugging Face мав місячну
-    квоту, яка регулярно вичерпувалась (HTTP 402); Pollinations.ai
-    завжди додавав водяний знак навіть з токеном. Якщо fal.ai
-    недоступний - повертає None, і scene_generator створює тестове
-    кольорове зображення.
-    """
-    if not FAL_API_KEY:
-        return None
-
-    try:
-        return _generate_image_with_fal(prompt, output_path)
-    except urllib.error.HTTPError as exc:
-        _log_fal_http_error(exc, "генерація картинки")
-        return None
-    except Exception as exc:
-        logger.warning("fal.ai недоступний (%s), використовуємо тестове зображення", exc)
-        return None
-
-
-def _fal_auth_headers() -> dict:
-    return {"Authorization": f"Key {FAL_API_KEY}"}
-
-
-def _log_fal_http_error(exc: "urllib.error.HTTPError", context: str) -> None:
-    # тіло відповіді зазвичай містить точний код/причину помилки
-    # (наприклад брак балансу, невірний формат запиту тощо) - без
-    # цього в логах видно лише голий HTTP-код, замало для діагностики
-    try:
-        error_body = exc.read().decode("utf-8", errors="replace")
-    except Exception:
-        error_body = "<не вдалось прочитати тіло відповіді>"
-    logger.warning(
-        "fal.ai (%s): HTTP %s: %s, тіло відповіді: %s",
-        context, exc.code, exc.reason, error_body,
-    )
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):

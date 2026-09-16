@@ -341,7 +341,7 @@ button#submit-button:disabled {
   text-decoration: underline;
 }
 
-/* --- Картки сцен (фото + рекомендований промт руху) у панелі результату --- */
+/* --- Картки сцен (промти для Google Flow) у панелі результату --- */
 
 .test-scenes-list {
   display: flex;
@@ -380,13 +380,6 @@ button#submit-button:disabled {
   margin-top: 6px;
 }
 
-.test-status {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 8px;
-  min-height: 16px;
-}
-
 .test-continue-button {
   background: var(--accent);
   color: white;
@@ -405,11 +398,4 @@ button#submit-button:disabled {
 .test-continue-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.test-preview-image {
-  display: block;
-  max-width: 260px;
-  border-radius: 8px;
-  background: black;
 }
