@@ -18,6 +18,11 @@ AI-сервіси.
   (motion_prompt, підбирає Gemini з backend/camera_movements.py) -
   користувач сам вставляє їх у Google Flow (чи інший text-to-video
   інструмент) і отримує готове відео напряму.
+- Перехід у наступну сцену: Gemini для кожної сцени також обирає
+  рекомендований промт переходу (transition_prompt, з
+  backend/transitions.py) - підказка, як саме змонтувати цю сцену з
+  наступною (hard cut, match cut, cross-dissolve тощо), яку користувач
+  застосовує вручну у своєму відеоредакторі.
 
 Якщо AI-виклик не вдається (немає ключа, немає інтернету, збій
 відповіді) - відповідна generate_*_with_ai() повертає None, і викликач
@@ -36,6 +41,7 @@ import urllib.request
 from dotenv import load_dotenv
 
 from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
+from backend.transitions import DEFAULT_TRANSITION, SCENE_TRANSITIONS
 
 try:
     import edge_tts
@@ -95,6 +101,7 @@ def _build_script_prompt(topic: str, language: str) -> str:
         json_example = (
             '[{"voice_text": "У тисяча дев\'ятсот вісімдесят шостому році...", '
             '"subtitle": "У 1986 році...", "camera_movement": "crash_zoom_in", '
+            '"transition": "zoom_punch_transition", '
             '"character_appears": true, '
             '"visual_prompt": "A cramped Soviet nuclear power plant control '
             'room at night, rows of analog dials and switches on a heavy '
@@ -127,6 +134,7 @@ def _build_script_prompt(topic: str, language: str) -> str:
         json_example = (
             '[{"voice_text": "In nineteen eighty-six...", '
             '"subtitle": "In 1986...", "camera_movement": "crash_zoom_in", '
+            '"transition": "zoom_punch_transition", '
             '"character_appears": true, '
             '"visual_prompt": "A cramped Soviet nuclear power plant control '
             'room at night, rows of analog dials and switches on a heavy '
@@ -176,6 +184,17 @@ def _build_script_prompt(topic: str, language: str) -> str:
         f"нижче, яке найкраще передає САМЕ ЦЮ дію (не бери одне й те саме "
         "для кожної сцени підряд, лише якщо дія справді однакова): "
         f"{', '.join(CAMERA_MOVEMENTS.keys())}.\n"
+        "- transition - як САМЕ ЦЯ сцена має перетекти в НАСТУПНУ сцену "
+        "(для останньої сцени - як завершити відео). Дивись на зміст ОБОХ "
+        "сцен (цієї й наступної): чи продовжується той самий предмет/дія "
+        "(тоді підійде плавний match cut), чи тема різко змінюється (тоді "
+        "простий hard cut), чи потрібен спокійний перехід через зміну "
+        "настрою/епохи (cross-dissolve), чи навпаки динамічний/тривожний "
+        "момент (whip pan чи zoom punch), чи це список/порівняння "
+        "(slide wipe), чи сильний емоційний акцент/панчлайн (flash cut). "
+        "Поверни ОДНЕ слово-ключ зі списку, яке найкраще передає САМЕ ЦЕЙ "
+        f"перехід (не бери одне й те саме підряд без причини): "
+        f"{', '.join(SCENE_TRANSITIONS.keys())}.\n"
         "- character_appears - true/false: чи має в цій сцені з'явитися "
         "постійний персонаж-провідник відео на ім'я Pipi. Pipi НЕ повинен "
         "бути в кожній сцені - вирішуй по суті: він природно пасує сценам "
@@ -270,7 +289,8 @@ def _build_script_prompt(topic: str, language: str) -> str:
         "не вказано - показуй сучасні речі.\n"
         "Поверни ВИКЛЮЧНО JSON-масив об'єктів (кількість елементів = "
         'кількість сцен, яку ти сам визначив) формату {"voice_text": "...", '
-        '"subtitle": "...", "camera_movement": "...", "character_appears": '
+        '"subtitle": "...", "camera_movement": "...", "transition": "...", '
+        '"character_appears": '
         f'true/false, "visual_prompt": "..."{translation_field_example}}}, '
         f"без markdown і без пояснень. Приклад: {json_example}"
     )
@@ -342,11 +362,15 @@ def generate_script_scenes_with_ai(topic: str, language: str):
             camera_movement_key = str(scene.get("camera_movement", "")).strip()
             if camera_movement_key not in CAMERA_MOVEMENTS:
                 camera_movement_key = DEFAULT_CAMERA_MOVEMENT
+            transition_key = str(scene.get("transition", "")).strip()
+            if transition_key not in SCENE_TRANSITIONS:
+                transition_key = DEFAULT_TRANSITION
             entry = {
                 "voice_text": voice_text,
                 "subtitle": subtitle,
                 "visual_prompt": visual_prompt,
                 "motion_prompt": CAMERA_MOVEMENTS[camera_movement_key],
+                "transition_prompt": SCENE_TRANSITIONS[transition_key],
                 "character_appears": bool(scene.get("character_appears", False)),
             }
             if language != "uk":

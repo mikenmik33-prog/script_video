@@ -235,6 +235,17 @@ function createScenePromptCard(scene) {
   motionText.readOnly = true;
   card.appendChild(motionText);
 
+  const transitionLabel = document.createElement("label");
+  transitionLabel.textContent = "Рекомендований перехід у наступну сцену (для монтажу):";
+  card.appendChild(transitionLabel);
+
+  const transitionText = document.createElement("textarea");
+  transitionText.className = "test-prompt-input";
+  transitionText.value = scene.transition_prompt || "";
+  transitionText.rows = 3;
+  transitionText.readOnly = true;
+  card.appendChild(transitionText);
+
   return card;
 }
 

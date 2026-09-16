@@ -12,9 +12,11 @@ hook -> основна частина -> висновок, автоматичн�
 Кожна сцена містить: voice_text (для озвучки - числа словами), subtitle
 (для екрану - числа цифрами), visual_prompt (детальний опис сцени
 англійською - користувач сам вставляє його в Google Flow чи інший
-text-to-video інструмент) і motion_prompt (готовий рекомендований промт
+text-to-video інструмент), motion_prompt (готовий рекомендований промт
 руху камери, Gemini сам обирає найбільш підходящий варіант зі списку в
-backend/camera_movements.py під дію конкретної сцени). "duration" на
+backend/camera_movements.py під дію конкретної сцени) і transition_prompt
+(готовий рекомендований промт переходу в наступну сцену, Gemini обирає
+з backend/transitions.py, враховуючи зміст обох сцен). "duration" на
 цьому етапі лише орієнтовна оцінка - voice_generator пізніше замінить
 її на реальну тривалість згенерованої озвучки.
 
@@ -25,6 +27,7 @@ backend/camera_movements.py під дію конкретної сцени). "dur
 
 from backend import ai
 from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
+from backend.transitions import DEFAULT_TRANSITION, SCENE_TRANSITIONS
 
 SCENE_DURATION = 5  # орієнтовна тривалість однієї сцени, секунди (лише
 # початкова оцінка - voice_generator пізніше замінить її на реальну
@@ -33,8 +36,6 @@ SCENE_DURATION = 5  # орієнтовна тривалість однієї с�
 # Лише для DEMO-шаблону (коли немає GEMINI_API_KEY чи запит не вдався) -
 # реальний AI сам вирішує кількість сцен, орієнтуючись на зміст
 DEMO_SCENE_COUNT = 6
-
-TRANSITIONS = ["fade", "cut", "slide"]
 
 TEMPLATES = {
     "uk": {
@@ -109,6 +110,7 @@ def generate_script(topic: str, language: str = "uk") -> dict:
                 "voice_text": line, "subtitle": line,
                 "visual_prompt": f"{topic}, scene {i}",
                 "motion_prompt": CAMERA_MOVEMENTS[DEFAULT_CAMERA_MOVEMENT],
+                "transition_prompt": SCENE_TRANSITIONS[DEFAULT_TRANSITION],
                 "character_appears": False,
             }
             for i, line in enumerate(lines, start=1)
@@ -122,9 +124,9 @@ def generate_script(topic: str, language: str = "uk") -> dict:
             "voice_text": texts["voice_text"],
             "visual_prompt": texts["visual_prompt"],
             "motion_prompt": texts["motion_prompt"],
+            "transition_prompt": texts["transition_prompt"],
             "character_appears": texts.get("character_appears", False),
             "subtitle": texts["subtitle"],
-            "transition": TRANSITIONS[(index - 1) % len(TRANSITIONS)],
         }
         if "translation_uk" in texts:
             scene["translation_uk"] = texts["translation_uk"]
