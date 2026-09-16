@@ -24,6 +24,17 @@ SAMPLE_RATE = 44100
 # невелика пауза після кожної репліки, щоб озвучка не звучала "впритул"
 SCENE_PADDING_SECONDS = 0.3
 
+# Google Flow (і подібні text-to-video інструменти) генерують кліпи
+# ЛИШЕ фіксованої тривалості - 4, 6 чи 8 секунд, не довільної. Реальна
+# тривалість озвучки (до сотих секунди) лишається в scene["duration"]
+# для точної синхронізації субтитрів, а це - лише підказка користувачу,
+# яку тривалість вибрати в самому Flow під цю сцену.
+FLOW_DURATIONS = (4, 6, 8)
+
+
+def _nearest_flow_duration(seconds: float) -> int:
+    return min(FLOW_DURATIONS, key=lambda d: abs(d - seconds))
+
 
 def _run_ffmpeg(args: list):
     result = subprocess.run(["ffmpeg", "-y", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -92,6 +103,7 @@ def generate_voice_for_scene(scene: dict, output_path: str, language: str = "uk"
         succeeded = True
 
     scene["duration"] = round(_probe_duration_seconds(output_path), 2)
+    scene["flow_duration"] = _nearest_flow_duration(scene["duration"])
     return succeeded
 
 

@@ -48,8 +48,6 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 # а тут лише службовий стан задач, не призначений для роздачі
 STATE_DIR = os.path.join(BASE_DIR, "state")
 
-ALLOWED_DURATIONS = (30, 60, 90)
-
 # Пайплайн розбитий на 2 етапи з ручним затвердженням користувачем між
 # ними (script -> ЗАТВЕРДЖУЮ -> export), а не один суцільний прогін -
 # користувач хоче бачити й правити текст сцен ДО фінального експорту.
@@ -134,14 +132,12 @@ def _start_output_cleanup():
 
 class GenerateRequest(BaseModel):
     topic: str
-    duration: int = 30
     language: str = "uk"
 
 
 def _new_job_state(request: GenerateRequest) -> dict:
     return {
         "topic": request.topic,
-        "duration": request.duration,
         "language": request.language,
         # "processing" -> "script_review" (користувач редагує/затверджує
         # текст сцен) -> "processing" -> "done"/"error"
@@ -196,7 +192,7 @@ def run_script_stage(job_id: str):
 
     try:
         _set_stage(job, "script", "active")
-        script = script_generator.generate_script(job["topic"], job["duration"], job["language"])
+        script = script_generator.generate_script(job["topic"], job["language"])
         job["script"] = script
         _set_stage(job, "script", "done")
 
@@ -264,8 +260,6 @@ def refresh_trending_ideas():
 def generate_video(request: GenerateRequest, background_tasks: BackgroundTasks):
     if not request.topic or not request.topic.strip():
         raise HTTPException(400, "Тема відео не може бути порожньою")
-    if request.duration not in ALLOWED_DURATIONS:
-        raise HTTPException(400, "Непідтримувана тривалість відео")
 
     job_id = uuid.uuid4().hex[:12]
     jobs[job_id] = _new_job_state(request)

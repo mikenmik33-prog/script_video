@@ -73,7 +73,7 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
+def _build_script_prompt(topic: str, language: str) -> str:
     language_instruction = "українською мовою" if language == "uk" else "in English"
 
     if language == "uk":
@@ -151,7 +151,18 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
     return (
         "Ти сценарист коротких вертикальних відео (YouTube Shorts/TikTok). "
         f"Напиши текст озвучки {language_instruction} для відео на тему: \"{topic}\". "
-        f"Розбий текст рівно на {scene_count} сцен. "
+        "ЖОРСТКИЙ ЛІМІТ: сумарно ВСІ voice_text усіх сцен РАЗОМ мають "
+        "містити НЕ БІЛЬШЕ 80 СЛІВ (орієнтовно 65-80 слів) - при "
+        "звичайному темпі озвучки це природно займає ~25-30 секунд. "
+        "Це найважливіше обмеження - навіть якщо тема велика й хочеться "
+        "розповісти більше, обери лише найважливіші факти й вклад йся в "
+        "ліміт слів, а НЕ намагайся вмістити все. Перевищення ліміту "
+        "неприпустиме. Водночас протягом УСЬОГО відео постійно має щось "
+        "розповідатися - без штучних пауз чи розтягнутих речень. "
+        "Розбий текст на ПРИРОДНУ кількість сцен, яку підказує сам зміст "
+        "(зазвичай 4-7) - кожна сцена має містити достатньо змісту, щоб "
+        "озвучка цієї сцени звучала природно завершеною думкою, а не "
+        "штучним обривком. "
         "Перша сцена - сильний hook, що одразу чіпляє увагу. "
         "Остання сцена - короткий висновок і заклик підписатись. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
@@ -257,11 +268,11 @@ def _build_script_prompt(topic: str, scene_count: int, language: str) -> str:
         "сучасності (наприклад «у 1943 році» -> техніка й форма часів "
         "Другої світової, а не сучасна); якщо йдеться про сучасність чи рік "
         "не вказано - показуй сучасні речі.\n"
-        f"Поверни ВИКЛЮЧНО JSON-масив довжиною {scene_count} з об'єктів "
-        'формату {"voice_text": "...", "subtitle": "...", "camera_movement": '
-        '"...", "character_appears": true/false, '
-        f'"visual_prompt": "..."{translation_field_example}}}, без '
-        f"markdown і без пояснень. Приклад: {json_example}"
+        "Поверни ВИКЛЮЧНО JSON-масив об'єктів (кількість елементів = "
+        'кількість сцен, яку ти сам визначив) формату {"voice_text": "...", '
+        '"subtitle": "...", "camera_movement": "...", "character_appears": '
+        f'true/false, "visual_prompt": "..."{translation_field_example}}}, '
+        f"без markdown і без пояснень. Приклад: {json_example}"
     )
 
 
@@ -283,23 +294,44 @@ def _call_gemini(prompt: str) -> str:
     return body["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def generate_script_scenes_with_ai(topic: str, scene_count: int, language: str):
+MIN_SCENES, MAX_SCENES = 3, 9
+# Жорсткий ліміт слів у сумі всіх voice_text - інструкція в промті
+# просить Gemini дотримуватись ~65-80 слів (природно ~25-30с озвучки),
+# але LLM не завжди точно дотримується власних інструкцій, тому
+# додатково перевіряємо результат кодом і відхиляємо занадто довгий
+# сценарій (замість реального ризику отримати відео на кілька хвилин
+# замість заявлених 30 секунд) - MAX з великим запасом над орієнтиром.
+MAX_TOTAL_WORDS = 110
+
+
+def generate_script_scenes_with_ai(topic: str, language: str):
     """Генерує текст і промт візуалу для кожної сцени через Gemini API.
 
-    Повертає список словників {"voice_text", "subtitle", "visual_prompt"}
-    довжиною scene_count, або None - якщо ключа немає чи запит не
-    вдався (тоді script_generator використовує локальний DEMO-шаблон).
+    Gemini сам вирішує, скільки сцен потрібно (орієнтовно 25-30с
+    озвучки загалом) - кількість НЕ фіксується наперед.
+
+    Повертає список словників {"voice_text", "subtitle", "visual_prompt", ...},
+    або None - якщо ключа немає чи запит не вдався (тоді script_generator
+    використовує локальний DEMO-шаблон).
     """
     if not GEMINI_API_KEY:
         return None
 
     try:
-        prompt = _build_script_prompt(topic, scene_count, language)
+        prompt = _build_script_prompt(topic, language)
         raw_text = _call_gemini(prompt)
         scenes = json.loads(_strip_code_fence(raw_text))
 
-        if not isinstance(scenes, list) or len(scenes) != scene_count:
+        if not isinstance(scenes, list) or not (MIN_SCENES <= len(scenes) <= MAX_SCENES):
             logger.warning("Gemini повернув невірну кількість сцен, використовуємо DEMO-шаблон")
+            return None
+
+        total_words = sum(len(str(scene.get("voice_text", "")).split()) for scene in scenes)
+        if total_words > MAX_TOTAL_WORDS:
+            logger.warning(
+                "Gemini перевищив ліміт слів (%d > %d), використовуємо DEMO-шаблон",
+                total_words, MAX_TOTAL_WORDS,
+            )
             return None
 
         result = []

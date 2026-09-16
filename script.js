@@ -200,6 +200,14 @@ function createScenePromptCard(scene) {
     : "— Піпі в цій сцені немає";
   card.appendChild(characterNote);
 
+  if (scene.flow_duration) {
+    const durationNote = document.createElement("p");
+    durationNote.textContent =
+      `⏱ Оберіть тривалість ${scene.flow_duration}с у Google Flow ` +
+      `(найближче до реальної озвучки ${scene.duration}с - Flow вміє лише 4/6/8с)`;
+    card.appendChild(durationNote);
+  }
+
   const promptLabel = document.createElement("label");
   promptLabel.textContent = "Детальний промт сцени (скопіюйте в Google Flow):";
   card.appendChild(promptLabel);
@@ -354,7 +362,6 @@ async function handleFormSubmit(event) {
   const formData = new FormData(form);
   const payload = {
     topic: formData.get("topic").trim(),
-    duration: Number(formData.get("duration")),
     language: formData.get("language"),
   };
 

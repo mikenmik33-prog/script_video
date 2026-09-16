@@ -17,6 +17,10 @@ text-to-video інструмент) і motion_prompt (готовий реком�
 backend/camera_movements.py під дію конкретної сцени). "duration" на
 цьому етапі лише орієнтовна оцінка - voice_generator пізніше замінить
 її на реальну тривалість згенерованої озвучки.
+
+Тривалість відео користувач більше не обирає - Gemini сам вирішує,
+скільки сцен потрібно, розраховуючи текст на природних ~25-30 секунд
+озвучки (без штучних пауз чи розтягувань заради конкретної цифри).
 """
 
 from backend import ai
@@ -25,6 +29,10 @@ from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
 SCENE_DURATION = 5  # орієнтовна тривалість однієї сцени, секунди (лише
 # початкова оцінка - voice_generator пізніше замінить її на реальну
 # тривалість озвучки, щоб відео, аудіо й субтитри збігались ідеально)
+
+# Лише для DEMO-шаблону (коли немає GEMINI_API_KEY чи запит не вдався) -
+# реальний AI сам вирішує кількість сцен, орієнтуючись на зміст
+DEMO_SCENE_COUNT = 6
 
 TRANSITIONS = ["fade", "cut", "slide"]
 
@@ -64,16 +72,6 @@ def _get_template(language: str) -> dict:
     return TEMPLATES.get(language, TEMPLATES["uk"])
 
 
-def _split_duration(total_duration: int, scene_count: int) -> list:
-    """Ділить загальну тривалість на цілочисельні шматки, що в сумі дають total_duration."""
-    base = total_duration // scene_count
-    remainder = total_duration - base * scene_count
-    durations = [base] * scene_count
-    for i in range(remainder):
-        durations[i] += 1
-    return durations
-
-
 def _build_lines(topic: str, template: dict, scene_count: int) -> list:
     # hook-шаблон сам додає "?" в кінці - прибираємо зайву пунктуацію з теми,
     # якщо користувач уже сформулював її як питання
@@ -90,23 +88,21 @@ def _build_lines(topic: str, template: dict, scene_count: int) -> list:
     return lines
 
 
-def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
+def generate_script(topic: str, language: str = "uk") -> dict:
     """Головна функція генерації сценарію та розбиття його на сцени.
 
-    Спочатку пробує реальний AI (Gemini, через ai.py). Якщо ключа немає
-    або запит не вдався, використовує локальний DEMO-шаблон - обидва
-    варіанти дають однакову кількість сцен і однаковий формат виводу.
+    Спочатку пробує реальний AI (Gemini, через ai.py) - той сам вирішує
+    природну кількість сцен під ~25-30с озвучки. Якщо ключа немає або
+    запит не вдався, використовує локальний DEMO-шаблон (фіксована
+    кількість сцен - DEMO_SCENE_COUNT).
     """
-    scene_count = max(3, round(duration / SCENE_DURATION))
-    durations = _split_duration(duration, scene_count)
-
-    ai_scenes_text = ai.generate_script_scenes_with_ai(topic, scene_count, language)
+    ai_scenes_text = ai.generate_script_scenes_with_ai(topic, language)
     if ai_scenes_text is not None:
         scene_texts = ai_scenes_text
     else:
         template = _get_template(language)
-        lines = _build_lines(topic, template, scene_count)
-        # DEMO-шаблон не має ні чисел, ні реального image-промта від AI:
+        lines = _build_lines(topic, template, DEMO_SCENE_COUNT)
+        # DEMO-шаблон не має ні чисел, ні реального промта від AI:
         # voice_text/subtitle однакові, а visual_prompt - проста заглушка
         scene_texts = [
             {
@@ -119,10 +115,10 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
         ]
 
     scenes = []
-    for index, (texts, scene_duration) in enumerate(zip(scene_texts, durations), start=1):
+    for index, texts in enumerate(scene_texts, start=1):
         scene = {
             "scene": index,
-            "duration": scene_duration,
+            "duration": SCENE_DURATION,  # орієнтовно - voice_generator замінить реальною тривалістю
             "voice_text": texts["voice_text"],
             "visual_prompt": texts["visual_prompt"],
             "motion_prompt": texts["motion_prompt"],
@@ -137,7 +133,6 @@ def generate_script(topic: str, duration: int, language: str = "uk") -> dict:
     result = {
         "topic": topic,
         "language": language,
-        "duration": duration,
         "full_text": " ".join(s["voice_text"] for s in scenes),
         "scenes": scenes,
     }
