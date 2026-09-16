@@ -24,14 +24,13 @@ AI-сервіси (наприклад платна генерація зобра
   бібліотека, тому за потреби легко замінити на офіційний платний TTS
   (Google Cloud TTS, Azure тощо) - для цього просто впиши TTS_API_KEY
   та реалізуй виклик у generate_voice_with_ai() за тим самим принципом.
-- Відео для окремих сцен (не обов'язково для всіх): fal.ai (платний,
-  потрібен FAL_API_KEY) - image-to-video через модель MiniMax Hailuo,
-  оживляє вже згенероване зображення сцени рухом. Оплата за фактичне
-  використання, без підписки чи мінімального платежу (на відміну від
-  Kling AI Open Platform, де мінімальний корпоративний тариф
-  починається від $1550/міс - для нашого вибіркового, нечастого
-  використання це не підходить). Викликається вибірково, не для
-  кожної сцени - див. scene_generator.py.
+- Відео: НЕ генерується застосунком. Раніше було через fal.ai
+  (image-to-video, MiniMax Hailuo), але користувач вирішив оживляти
+  сцени вручну через Google Flow (той функціонал видалено за
+  проханням). Кожна сцена все ще має власний рекомендований промт руху
+  камери (motion_prompt, підбирає Gemini з backend/camera_movements.py) -
+  готовий текст, який користувач може скопіювати в будь-який зовнішній
+  відео-генератор (Flow тощо).
 
 Якщо будь-який AI-виклик не вдається (немає ключа, немає інтернету,
 збій відповіді) - відповідна generate_*_with_ai() повертає None, і
@@ -41,7 +40,6 @@ AI-сервіси (наприклад платна генерація зобра
 """
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -63,7 +61,6 @@ logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-VIDEO_API_KEY = os.getenv("VIDEO_API_KEY", "").strip()
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 FAL_API_KEY = os.getenv("FAL_API_KEY", "").strip()
 
@@ -71,17 +68,11 @@ GEMINI_MODEL = "gemini-flash-lite-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 GEMINI_TIMEOUT_SECONDS = 30
 
-# fal.ai - агрегатор AI-моделей з оплатою за фактичне використання
-FAL_SYNC_BASE = "https://fal.run"  # синхронні (швидкі) моделі - картинки
-# queue-based API: POST у чергу -> опитування статусу -> результат -
-# для повільніших моделей (відео)
-FAL_QUEUE_BASE = "https://queue.fal.run"
+# fal.ai - синхронний (швидкий) ендпоінт для генерації картинок,
+# оплата за фактичне використання
+FAL_SYNC_BASE = "https://fal.run"
 FAL_IMAGE_MODEL = "fal-ai/flux/schnell"
 FAL_IMAGE_TIMEOUT_SECONDS = 60
-FAL_VIDEO_MODEL = "fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video"
-# скільки максимум чекати результату - рахує викликач (server.py) за
-# часом від моменту постановки в чергу, порівнюючи із submitted_at
-FAL_MAX_WAIT_SECONDS = 180
 
 IMAGE_WIDTH, IMAGE_HEIGHT = 720, 1280  # 720p - має збігатися з scene_generator.py
 
@@ -91,7 +82,7 @@ EDGE_TTS_VOICES = {
     "en": "en-US-AriaNeural",
 }
 
-DEMO_MODE = not (OPENAI_API_KEY or GEMINI_API_KEY or VIDEO_API_KEY or TTS_API_KEY)
+DEMO_MODE = not (OPENAI_API_KEY or GEMINI_API_KEY or TTS_API_KEY)
 
 
 def has_text_api() -> bool:
@@ -401,15 +392,6 @@ def generate_visual_with_ai(prompt: str, output_path: str):
         return None
 
 
-def has_video_api() -> bool:
-    return bool(FAL_API_KEY)
-
-
-def _guess_image_mime(image_path: str) -> str:
-    ext = os.path.splitext(image_path)[1].lower()
-    return "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
-
-
 def _fal_auth_headers() -> dict:
     return {"Authorization": f"Key {FAL_API_KEY}"}
 
@@ -426,104 +408,6 @@ def _log_fal_http_error(exc: "urllib.error.HTTPError", context: str) -> None:
         "fal.ai (%s): HTTP %s: %s, тіло відповіді: %s",
         context, exc.code, exc.reason, error_body,
     )
-
-
-def submit_video_job(image_path: str, prompt: str):
-    """Ставить у чергу fal.ai (модель MiniMax Hailuo) запит на
-    оживлення зображення коротким відеокліпом (image-to-video) -
-    платний сервіс з оплатою за фактичне використання, викликається
-    вибірково, не для кожної сцени (див. scene_generator.py).
-
-    Зображення передається як base64 data URI прямо в тілі запиту, щоб
-    не залежати від того, чи доступне воно за публічним URL.
-
-    Модель видає 768p, 25fps, БЕЗ звукової доріжки (нам це підходить -
-    озвучку й музику ми й так додаємо окремо через ffmpeg). Тривалість
-    підтримується лише фіксована - 6 або 10 секунд (не довільна) -
-    беремо 6с як дешевший варіант ($0.28 проти $0.56 за кліп).
-
-    Повертає {"status_url", "response_url"} для подальшого опитування
-    через check_video_job(), або None - якщо ключа немає чи запит на
-    постановку в чергу не вдався.
-
-    Це лише миттєва постановка в чергу (один швидкий HTTP-запит) - сама
-    генерація займає хвилини, тому очікування результату винесене в
-    окрему функцію (check_video_job), яку викликач опитує самостійно
-    (наприклад, у відповідь на періодичні запити від браузера), а не
-    один довгий блокуючий цикл на сервері - на слабкому CPU (Render
-    free-тариф) багатохвилинний цикл з time.sleep у фоновому потоці
-    підвищував ризик примусового рестарту процесу, через що і job, і
-    вже сплачений результат генерації губились безповоротно.
-    """
-    if not FAL_API_KEY:
-        return None
-
-    submit_url = f"{FAL_QUEUE_BASE}/{FAL_VIDEO_MODEL}"
-
-    try:
-        with open(image_path, "rb") as f:
-            image_b64 = base64.b64encode(f.read()).decode("utf-8")
-        image_data_uri = f"data:{_guess_image_mime(image_path)};base64,{image_b64}"
-
-        submit_payload = json.dumps({
-            "prompt": prompt,
-            "image_url": image_data_uri,
-            "duration": "6",
-        }).encode("utf-8")
-
-        submit_request = urllib.request.Request(
-            submit_url,
-            data=submit_payload,
-            headers={**_fal_auth_headers(), "Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(submit_request, timeout=30) as response:
-            submit_body = json.loads(response.read().decode("utf-8"))
-
-        return {
-            "status_url": submit_body["status_url"],
-            "response_url": submit_body["response_url"],
-        }
-    except urllib.error.HTTPError as exc:
-        _log_fal_http_error(exc, "постановка в чергу")
-        return None
-    except Exception as exc:
-        logger.warning("fal.ai недоступний (%s), лишаємо статичну картинку", exc)
-        return None
-
-
-def check_video_job(status_url: str, response_url: str, output_path: str) -> str:
-    """Одна швидка перевірка стану задачі в черзі fal.ai - без сну й
-    без циклу очікування (див. docstring submit_video_job для причини).
-
-    Повертає "processing", "done" (кліп уже збережено в output_path)
-    або "error".
-    """
-    try:
-        status_request = urllib.request.Request(status_url, headers=_fal_auth_headers())
-        with urllib.request.urlopen(status_request, timeout=20) as response:
-            status_body = json.loads(response.read().decode("utf-8"))
-
-        status = status_body.get("status")
-        if status == "COMPLETED":
-            result_request = urllib.request.Request(response_url, headers=_fal_auth_headers())
-            with urllib.request.urlopen(result_request, timeout=20) as response:
-                result_body = json.loads(response.read().decode("utf-8"))
-            video_url = result_body["video"]["url"]
-            with urllib.request.urlopen(video_url, timeout=60) as response:
-                with open(output_path, "wb") as f:
-                    f.write(response.read())
-            return "done"
-        if status in ("ERROR", "CANCELED"):
-            logger.warning("fal.ai: генерація відео завершилась невдало (status=%s)", status)
-            return "error"
-        return "processing"
-    except urllib.error.HTTPError as exc:
-        _log_fal_http_error(exc, "перевірка статусу")
-        return "error"
-    except Exception as exc:
-        logger.warning("fal.ai: помилка перевірки статусу (%s)", exc)
-        return "error"
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):

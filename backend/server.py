@@ -9,16 +9,20 @@ FastAPI backend для AI Video Generator (DEMO-режим).
 Автоматичний монтаж (FFmpeg, editor.py) прибрано ПОВНІСТЮ - і з
 основного пайплайна, і з тестової панелі - він був найважчим CPU-
 навантаженням і найчастішою причиною примусових рестартів на слабкому
-сервері. Сайт видає готові матеріали (картинки/відео сцен, аудіо
-озвучки, .srt субтитри, script.json), а фінальний монтаж користувач
-робить сам у будь-якому відеоредакторі.
+сервері. Сайт видає готові матеріали (картинки сцен, аудіо озвучки,
+.srt субтитри, script.json), а фінальний монтаж (і, за бажання,
+оживлення сцен рухом через Google Flow чи інший інструмент) користувач
+робить сам поза застосунком.
+
+Автоматичну генерацію відео (fal.ai, image-to-video) прибрано за
+проханням користувача - планує оживляти сцени вручну через Google
+Flow, застосунку не потрібно платно генерувати відео самому.
 
 Запуск (з кореня проєкту):
     uvicorn backend.server:app --reload
 Потім відкрити http://127.0.0.1:8000 у браузері.
 """
 
-import base64
 import json
 import logging
 import os
@@ -41,10 +45,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(messag
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-VIDEOS_DIR = os.path.join(OUTPUT_DIR, "_scene_videos")
 # НЕ під OUTPUT_DIR - той примонтований як публічна статика (/output/...),
-# а тут лише службовий стан (internal fal.ai URL задач), не призначений
-# для роздачі
+# а тут лише службовий стан задач, не призначений для роздачі
 STATE_DIR = os.path.join(BASE_DIR, "state")
 
 ALLOWED_DURATIONS = (30, 60, 90)
@@ -57,81 +59,23 @@ ALLOWED_DURATIONS = (30, 60, 90)
 # так користувач одразу бачить реальну тривалість кожної репліки.
 STAGE_ORDER = ["script", "voice", "visual", "export"]
 
-# Максимальний вік файлу/задачі на диску і як часто перевіряти - без
-# цього кожен клік "оживити сцену" накопичувався б на диску назавжди,
-# поки контейнер живий.
+# Максимальний вік задачі на диску і як часто перевіряти - без цього
+# jobs.json ріс би необмежено, поки контейнер живий.
 FILE_MAX_AGE_SECONDS = 2 * 60 * 60  # 2 години
 CLEANUP_INTERVAL_SECONDS = 30 * 60  # перевіряти раз на 30 хв
-
-
-def _delete_old_video_files():
-    """Видаляє відеофайли сцен, старші за FILE_MAX_AGE_SECONDS."""
-    if not os.path.isdir(VIDEOS_DIR):
-        return
-    now = time.time()
-    for filename in os.listdir(VIDEOS_DIR):
-        path = os.path.join(VIDEOS_DIR, filename)
-        try:
-            if now - os.path.getmtime(path) > FILE_MAX_AGE_SECONDS:
-                os.remove(path)
-        except OSError:
-            pass  # файл могли видалити паралельно - не критично
 
 
 def _cleanup_loop():
     while True:
         time.sleep(CLEANUP_INTERVAL_SECONDS)
-        _delete_old_video_files()
-        _prune_video_jobs()
         _prune_jobs()
 
 
 def _start_cleanup():
-    _delete_old_video_files()
-    _prune_video_jobs()
     _prune_jobs()
     thread = threading.Thread(target=_cleanup_loop, daemon=True)
     thread.start()
 
-
-# --- Стійкий до рестарту стан video-задач оживлення сцен (fal.ai) ---
-#
-# video_jobs раніше жив ЛИШЕ в пам'яті процесу - будь-який рестарт
-# сервера (деплой нового коду, примусовий рестарт Render через
-# перевантаження CPU) стирав усі активні задачі, і клієнт бачив
-# "Помилка при перевірці статусу", хоча сама генерація на fal.ai могла
-# продовжуватись (і кошти вже списувались) незалежно від нашого сервера.
-# Зберігаємо стан у JSON-файл після кожної зміни - при рестарті процес
-# підхоплює задачі там, де зупинився.
-VIDEO_JOBS_FILE = os.path.join(STATE_DIR, "video_jobs.json")
-
-
-def _load_video_jobs() -> dict:
-    try:
-        with open(VIDEO_JOBS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def _save_video_jobs():
-    os.makedirs(STATE_DIR, exist_ok=True)
-    with open(VIDEO_JOBS_FILE, "w", encoding="utf-8") as f:
-        json.dump(video_jobs, f)
-
-
-def _prune_video_jobs():
-    """Видаляє записи задач, старші за FILE_MAX_AGE_SECONDS - інакше
-    файл (і словник у пам'яті) ріс би необмежено."""
-    now = time.time()
-    stale_ids = [
-        job_id for job_id, job in video_jobs.items()
-        if now - job.get("submitted_at", 0) > FILE_MAX_AGE_SECONDS
-    ]
-    for job_id in stale_ids:
-        del video_jobs[job_id]
-    if stale_ids:
-        _save_video_jobs()
 
 app = FastAPI(title="AI Video Generator (DEMO)")
 
@@ -142,11 +86,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Стан задач основного генератора - зберігається на диск (той самий
-# принцип, що й video_jobs), інакше рестарт процесу (примусовий
-# рестарт Render через нестачу CPU/пам'яті - трапляється саме під час
-# важкого етапу монтажу - або деплой нового коду) стирає задачу
-# повністю, і користувач бачить голий 404/502 замість зрозумілої причини.
+# Стан задач основного генератора - зберігається на диск, інакше
+# рестарт процесу (примусовий рестарт Render через нестачу CPU/пам'яті
+# або деплой нового коду) стирає задачу повністю, і користувач бачить
+# голий 404/502 замість зрозумілої причини.
 #
 # Важливо: це НЕ дозволяє "доробити" перервану генерацію - run_pipeline
 # виконується в одній Python-функції у фоновому потоці, і коли процес
@@ -500,10 +443,9 @@ class RegenerateImageRequest(BaseModel):
 @app.post("/api/regenerate-image")
 def regenerate_scene_image(request: RegenerateImageRequest):
     """Перегенерує картинку однієї сцени за (можливо відредагованим)
-    промтом - щоб користувач міг виправити невдале зображення ДО того,
-    як натисне платне «Оживити сцену» (image-to-video), яке саме з цієї
-    картинки й починається. Працює і на етапі photo_review (до
-    фінального затвердження), і пізніше, коли задача вже "done"."""
+    промтом - щоб користувач міг виправити невдале/невідповідне темі
+    зображення. Працює і на етапі photo_review (до фінального
+    затвердження), і пізніше, коли задача вже "done"."""
     job = jobs.get(request.job_id)
     if job is None or job["status"] not in ("photo_review", "done"):
         raise HTTPException(404, "Задачу не знайдено або картинки ще не готові")
@@ -518,85 +460,6 @@ def regenerate_scene_image(request: RegenerateImageRequest):
     # картинку з кешу замість щойно перегенерованої
     image_url = f"/output/{request.job_id}/scenes/{os.path.basename(output_path)}?v={int(time.time())}"
     return {"image_url": image_url}
-
-
-# --- Оживлення окремої сцени рухом через fal.ai (image-to-video) -----
-#
-# Викликається вибірково, для однієї обраної сцени за раз (кнопка
-# "Оживити сцену" в панелі результату на головній сторінці) - платно,
-# лише за явним підтвердженням користувача, ніколи автоматично.
-
-video_jobs: dict = _load_video_jobs()
-
-
-class VideoRequest(BaseModel):
-    visual_prompt: str
-    image_data: str
-
-
-@app.post("/api/video")
-def generate_scene_video(request: VideoRequest):
-    if not ai.has_video_api():
-        raise HTTPException(400, "FAL_API_KEY не налаштований на сервері")
-
-    os.makedirs(VIDEOS_DIR, exist_ok=True)
-
-    # картинка приходить як base64 прямо від фронтенду (не шлях на диску) -
-    # не залежить від того, чи вижив файл на сервері (Render безкоштовного
-    # тарифу "засинає" при бездіяльності й перезапускає контейнер із
-    # чистим ефемерним диском при пробудженні)
-    header, _, encoded = request.image_data.partition(",")
-    image_path = os.path.join(VIDEOS_DIR, f"{uuid.uuid4().hex[:10]}_source.png")
-    with open(image_path, "wb") as f:
-        f.write(base64.b64decode(encoded))
-
-    # Лише миттєва постановка в чергу fal.ai (один швидкий HTTP-запит) -
-    # саму генерацію (хвилини) опитує клієнт через GET нижче, без
-    # довгого блокуючого циклу на сервері (див. docstring
-    # ai.submit_video_job - таке блокування раніше підвищувало ризик
-    # примусового рестарту процесу на слабкому CPU Render).
-    job = ai.submit_video_job(image_path, request.visual_prompt)
-    if job is None:
-        raise HTTPException(502, "fal.ai не прийняв запит - деталі в логах сервера")
-
-    job_id = uuid.uuid4().hex[:10]
-    video_jobs[job_id] = {
-        "status": "processing",
-        "video_url": None,
-        "error": None,
-        "status_url": job["status_url"],
-        "response_url": job["response_url"],
-        "submitted_at": time.time(),
-    }
-    _save_video_jobs()
-    return {"job_id": job_id}
-
-
-@app.get("/api/video/{job_id}")
-def get_scene_video_status(job_id: str):
-    job = video_jobs.get(job_id)
-    if job is None:
-        raise HTTPException(404, "Задачу не знайдено")
-
-    if job["status"] == "processing":
-        if time.time() - job["submitted_at"] > ai.FAL_MAX_WAIT_SECONDS:
-            job["status"] = "error"
-            job["error"] = f"не дочекались результату за {ai.FAL_MAX_WAIT_SECONDS} с"
-            _save_video_jobs()
-        else:
-            output_path = os.path.join(VIDEOS_DIR, f"{job_id}.mp4")
-
-            result = ai.check_video_job(job["status_url"], job["response_url"], output_path)
-            if result == "done":
-                job["status"] = "done"
-                job["video_url"] = f"/output/_scene_videos/{job_id}.mp4"
-                _save_video_jobs()
-            elif result == "error":
-                job["status"] = "error"
-                job["error"] = "fal.ai не повернув результат - деталі причини дивіться в логах сервера"
-                _save_video_jobs()
-
-    return {"status": job["status"], "video_url": job["video_url"], "error": job["error"]}
 
 
 # --- Роздача frontend-файлів (лежать у корені проєкту, не в backend/) ---

@@ -341,7 +341,7 @@ button#submit-button:disabled {
   text-decoration: underline;
 }
 
-/* --- Картки "оживити сцену" (fal.ai) у панелі результату --- */
+/* --- Картки сцен (фото + рекомендований промт руху) у панелі результату --- */
 
 .test-scenes-list {
   display: flex;
@@ -380,14 +380,6 @@ button#submit-button:disabled {
   margin-top: 6px;
 }
 
-.danger-button {
-  background: var(--error) !important;
-}
-
-.danger-button:hover:not(:disabled) {
-  background: #ff8a8a !important;
-}
-
 .test-status {
   font-size: 12px;
   color: var(--text-muted);
@@ -415,8 +407,7 @@ button#submit-button:disabled {
   cursor: not-allowed;
 }
 
-.test-preview-image,
-.test-preview-video {
+.test-preview-image {
   display: block;
   max-width: 260px;
   border-radius: 8px;

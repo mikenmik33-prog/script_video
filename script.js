@@ -186,32 +186,21 @@ function renderResult(data, jobId) {
     addFileLink(filesList, `Аудіо сцени ${index + 1}`, url);
   });
 
-  const sceneVideosList = document.getElementById("result-scene-videos");
-  sceneVideosList.innerHTML = "";
+  const scenePhotosList = document.getElementById("result-scene-videos");
+  scenePhotosList.innerHTML = "";
   result.scene_images.forEach((imageUrl, index) => {
     const scene = script.scenes[index];
-    sceneVideosList.appendChild(createSceneVideoCard(scene, imageUrl, jobId));
+    scenePhotosList.appendChild(createFinalSceneCard(scene, imageUrl, jobId));
   });
 
   resultPanel.hidden = false;
 }
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
 // Перегенерація картинки сцени - щоб виправити невдалий/невідповідний
 // темі результат. Спільна для панелі перегляду фото (photo_review) і
-// фінальної панелі результату (де з цієї ж картинки ще й можна почати
-// платне "Оживити сцену"). Повертає {card, state} - state.imageUrl
+// фінальної панелі результату. Повертає {card, state} - state.imageUrl
 // завжди містить АКТУАЛЬНИЙ url картинки (оновлюється після кожної
-// перегенерації), картки, які додають щось СВОЄ під низ (наприклад
-// кнопку відео), читають саме його.
+// перегенерації).
 function createImageRegenerateSection(scene, imageUrl, jobId) {
   const state = { imageUrl };
   const card = document.createElement("div");
@@ -277,85 +266,22 @@ function createImageRegenerateSection(scene, imageUrl, jobId) {
   return { card, state };
 }
 
-// Оживлення окремої сцени рухом через fal.ai (image-to-video) -
-// вибіркова платна дія для однієї конкретної сцени, лише за явним
-// підтвердженням.
-function createSceneVideoCard(scene, imageUrl, jobId) {
-  const { card, state } = createImageRegenerateSection(scene, imageUrl, jobId);
+// Фінальна картка сцени: фото (з перегенерацією) + рекомендований
+// промт руху камери, готовий для копіювання в будь-який зовнішній
+// відео-генератор (Google Flow тощо) - застосунок сам відео не генерує.
+function createFinalSceneCard(scene, imageUrl, jobId) {
+  const { card } = createImageRegenerateSection(scene, imageUrl, jobId);
 
-  const promptLabel = document.createElement("label");
-  promptLabel.textContent = "Промт для руху (Gemini підібрав автоматично під дію сцени, можна відредагувати):";
-  card.appendChild(promptLabel);
+  const motionLabel = document.createElement("label");
+  motionLabel.textContent = "Рекомендований промт руху камери (Gemini підібрав під дію сцени - скопіюйте в Google Flow чи інший відео-генератор):";
+  card.appendChild(motionLabel);
 
-  const promptInput = document.createElement("textarea");
-  promptInput.className = "test-prompt-input";
-  promptInput.value = scene.motion_prompt || scene.visual_prompt;
-  promptInput.rows = 4;
-  card.appendChild(promptInput);
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "test-continue-button danger-button";
-  button.textContent = "🎬 Оживити сцену (fal.ai, платно)";
-  card.appendChild(button);
-
-  const statusText = document.createElement("p");
-  statusText.className = "test-status";
-  card.appendChild(statusText);
-
-  const previewVideo = document.createElement("video");
-  previewVideo.className = "test-preview-video";
-  previewVideo.controls = true;
-  previewVideo.hidden = true;
-  card.appendChild(previewVideo);
-
-  button.addEventListener("click", async () => {
-    const confirmed = window.confirm("Це реально витратить платний баланс fal.ai. Продовжити?");
-    if (!confirmed) return;
-
-    button.disabled = true;
-    statusText.textContent = "Завантажуємо картинку сцени...";
-    try {
-      const imageBlob = await (await fetch(state.imageUrl)).blob();
-      const imageData = await blobToDataUrl(imageBlob);
-
-      statusText.textContent = "Надсилаємо запит до fal.ai...";
-      const response = await fetch("/api/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_data: imageData, visual_prompt: promptInput.value }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || "Не вдалося запустити генерацію відео");
-      }
-      const { job_id: jobId } = await response.json();
-
-      statusText.textContent = "fal.ai генерує відео (може тривати до 3 хв)...";
-      const POLL_INTERVAL_MS = 4000;
-      while (true) {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        const statusResponse = await fetch(`/api/video/${jobId}`);
-        if (!statusResponse.ok) {
-          throw new Error("Помилка при перевірці статусу");
-        }
-        const data = await statusResponse.json();
-        if (data.status === "done") {
-          previewVideo.src = data.video_url;
-          previewVideo.hidden = false;
-          statusText.textContent = "Відео готове!";
-          break;
-        }
-        if (data.status === "error") {
-          throw new Error(data.error || "fal.ai не повернув результат");
-        }
-      }
-    } catch (err) {
-      statusText.textContent = `Помилка: ${err.message}`;
-    } finally {
-      button.disabled = false;
-    }
-  });
+  const motionText = document.createElement("textarea");
+  motionText.className = "test-prompt-input";
+  motionText.value = scene.motion_prompt || "";
+  motionText.rows = 4;
+  motionText.readOnly = true;
+  card.appendChild(motionText);
 
   return card;
 }
