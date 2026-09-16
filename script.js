@@ -214,7 +214,7 @@ function createScenePromptCard(scene) {
   card.appendChild(promptText);
 
   const motionLabel = document.createElement("label");
-  motionLabel.textContent = "Рекомендований промт руху камери (Gemini підібрав під дію сцени):";
+  motionLabel.textContent = "Рекомендований промт руху камери (GPT підібрав під дію сцени):";
   card.appendChild(motionLabel);
 
   const motionText = document.createElement("textarea");

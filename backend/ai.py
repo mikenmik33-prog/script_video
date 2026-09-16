@@ -5,16 +5,16 @@
 AI-сервіси.
 
 - Сценарій (текст + детальний промт сцени + рекомендований промт руху
-  камери): Gemini API (потрібен GEMINI_API_KEY, безкоштовний).
+  камери): OpenAI GPT API (потрібен OPENAI_API_KEY).
 - Озвучка: edge-tts — зовнішній сервіс синтезу мовлення Microsoft Edge.
 - Картинки й відео: застосунок НЕ генерує ні те, ні інше (за рішенням
   користувача - платна генерація картинок через fal.ai виявилась
   зайвим кроком). Замість цього кожна сцена має готовий детальний
   текстовий промт (visual_prompt) і рекомендований промт руху камери
-  (motion_prompt, підбирає Gemini з backend/camera_movements.py) -
+  (motion_prompt, підбирає GPT з backend/camera_movements.py) -
   користувач сам вставляє їх у Google Flow (чи інший text-to-video
   інструмент) і отримує готове відео напряму.
-- Перехід у наступну сцену: Gemini для кожної сцени також обирає
+- Перехід у наступну сцену: GPT для кожної сцени також обирає
   рекомендований промт переходу (transition_prompt, з
   backend/transitions.py) - підказка, як саме змонтувати цю сцену з
   наступною (hard cut, match cut, cross-dissolve тощо), яку користувач
@@ -46,11 +46,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-
-GEMINI_MODEL = "gemini-flash-lite-latest"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-GEMINI_TIMEOUT_SECONDS = 30
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-astra").strip()
+OPENAI_URL = "https://api.openai.com/v1/responses"
+OPENAI_TIMEOUT_SECONDS = 60
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -60,7 +59,7 @@ EDGE_TTS_VOICES = {
 
 
 def _strip_code_fence(text: str) -> str:
-    """Gemini часто обгортає JSON у ```json ... ``` - прибираємо це."""
+    """Прибирає markdown-обгортку навколо JSON, якщо модель її додала."""
     text = text.strip()
     if not text.startswith("```"):
         return text
@@ -288,27 +287,80 @@ def _build_script_prompt(topic: str, language: str) -> str:
     )
 
 
-def _call_gemini(prompt: str) -> str:
+def _extract_openai_text(body: dict) -> str:
+    """Extract the JSON text from a Responses API result."""
+    output_text = body.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    for item in body.get("output", []):
+        if item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if content.get("type") == "output_text" and content.get("text"):
+                return content["text"]
+
+    raise RuntimeError("OpenAI не повернув текстову відповідь.")
+
+
+def _call_openai(prompt: str) -> str:
+    scene_schema = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "voice_text": {"type": "string"},
+                "subtitle": {"type": "string"},
+                "camera_movement": {"type": "string"},
+                "transition": {"type": "string"},
+                "character_appears": {"type": "boolean"},
+                "visual_prompt": {"type": "string"},
+                "translation_uk": {"type": "string"},
+            },
+            "required": [
+                "voice_text",
+                "subtitle",
+                "camera_movement",
+                "transition",
+                "character_appears",
+                "visual_prompt",
+                "translation_uk",
+            ],
+            "additionalProperties": False,
+        },
+    }
     payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.9},
+        "model": OPENAI_MODEL,
+        "input": prompt,
+        "tools": [{"type": "web_search_preview"}],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "script_scenes",
+                "strict": True,
+                "schema": scene_schema,
+            }
+        },
     }).encode("utf-8")
 
     request = urllib.request.Request(
-        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+        OPENAI_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=OPENAI_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
 
-    return body["candidates"][0]["content"]["parts"][0]["text"]
+    return _extract_openai_text(body)
 
 
 MIN_SCENES, MAX_SCENES = 3, 9
 # Жорсткий ліміт слів у сумі всіх voice_text - інструкція в промті
-# просить Gemini дотримуватись ~65-80 слів (природно ~25-30с озвучки),
+# просить GPT дотримуватись ~65-80 слів (природно ~25-30с озвучки),
 # але LLM не завжди точно дотримується власних інструкцій, тому
 # додатково перевіряємо результат кодом і відхиляємо занадто довгий
 # сценарій (замість реального ризику отримати відео на кілька хвилин
@@ -317,30 +369,30 @@ MAX_TOTAL_WORDS = 110
 
 
 def generate_script_scenes_with_ai(topic: str, language: str):
-    """Генерує текст і промт візуалу для кожної сцени через Gemini API.
+    """Генерує текст і промт візуалу для кожної сцени через OpenAI GPT API.
 
-    Gemini сам вирішує, скільки сцен потрібно (орієнтовно 25-30с
+    GPT сам вирішує, скільки сцен потрібно (орієнтовно 25-30с
     озвучки загалом) - кількість НЕ фіксується наперед.
 
     Повертає список словників {"voice_text", "subtitle", "visual_prompt", ...}.
-    Якщо ключ відсутній або Gemini повертає некоректну відповідь, піднімає
+    Якщо ключ відсутній або GPT повертає некоректну відповідь, піднімає
     помилку: застосунок не підміняє реальний результат тестовим сценарієм.
     """
-    if not GEMINI_API_KEY:
-        raise RuntimeError("Не задано GEMINI_API_KEY. Додайте ключ у файл .env і перезапустіть сервер.")
+    if not OPENAI_API_KEY:
+        raise RuntimeError("Не задано OPENAI_API_KEY. Додайте ключ у файл .env і перезапустіть сервер.")
 
     try:
         prompt = _build_script_prompt(topic, language)
-        raw_text = _call_gemini(prompt)
+        raw_text = _call_openai(prompt)
         scenes = json.loads(_strip_code_fence(raw_text))
 
         if not isinstance(scenes, list) or not (MIN_SCENES <= len(scenes) <= MAX_SCENES):
-            raise RuntimeError("Gemini повернув некоректну кількість сцен. Спробуйте іншу тему.")
+            raise RuntimeError("GPT повернув некоректну кількість сцен. Спробуйте іншу тему.")
 
         total_words = sum(len(str(scene.get("voice_text", "")).split()) for scene in scenes)
         if total_words > MAX_TOTAL_WORDS:
             raise RuntimeError(
-                f"Gemini повернув надто довгий сценарій ({total_words} слів; максимум {MAX_TOTAL_WORDS}). Спробуйте іншу тему."
+                f"GPT повернув надто довгий сценарій ({total_words} слів; максимум {MAX_TOTAL_WORDS}). Спробуйте іншу тему."
             )
 
         result = []
@@ -363,15 +415,15 @@ def generate_script_scenes_with_ai(topic: str, language: str):
                 "character_appears": bool(scene.get("character_appears", False)),
             }
             if language != "uk":
-                # переклад лише для показу на сторінці - якщо Gemini з
+                # переклад лише для показу на сторінці - якщо GPT з
                 # якоїсь причини не повернув поле, показуємо оригінал,
                 # а не ламаємо весь результат
                 entry["translation_uk"] = str(scene.get("translation_uk", voice_text)).strip()
             result.append(entry)
         return result
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        logger.warning("Gemini API недоступний: %s", exc)
-        raise RuntimeError("Gemini API недоступний або повернув некоректну відповідь. Перевірте ключ і спробуйте ще раз.") from exc
+        logger.warning("OpenAI API недоступний: %s", exc)
+        raise RuntimeError("OpenAI API недоступний або повернув некоректну відповідь. Перевірте ключ і спробуйте ще раз.") from exc
 
 
 async def _synthesize_with_edge_tts(text: str, voice: str, output_path: str):
