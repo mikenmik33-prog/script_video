@@ -3,10 +3,10 @@
 
 Спочатку пробує реальну генерацію зображення через ai.py (fal.ai,
 модель FLUX.1 [schnell], за промтом visual_prompt від Gemini +
-стильовий суфікс нижче). Якщо запит не вдався (немає ключа, немає
-інтернету, сервіс недоступний), для сцени створюється тестове
-кольорове зображення 720x1280 з підписом - це дозволяє конвеєру
-працювати навіть повністю офлайн.
+кінематографічний суфікс нижче - єдиний стиль застосунку). Якщо запит
+не вдався (немає ключа, немає інтернету, сервіс недоступний), для
+сцени створюється тестове кольорове зображення 720x1280 з підписом -
+це дозволяє конвеєру працювати навіть повністю офлайн.
 """
 
 import os
@@ -27,31 +27,20 @@ WIDTH, HEIGHT = 720, 1280  # 720p
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "DejaVuSans-Bold.ttf")
 
-# Кольорові палітри для різних стилів відео (верхній і нижній колір градієнта) -
-# використовуються лише в офлайн-заглушці, якщо реальна генерація не вдалась
-STYLE_PALETTES = {
-    "cinematic": [(20, 24, 38), (44, 52, 84)],
-    "minimal": [(245, 245, 245), (225, 225, 225)],
-    "energetic": [(255, 87, 34), (255, 152, 0)],
-    "news": [(30, 30, 30), (120, 20, 20)],
-}
-DEFAULT_STYLE = "cinematic"
+# Кольорова палітра градієнта - використовується лише в офлайн-заглушці,
+# якщо реальна генерація не вдалась
+GRADIENT_PALETTE = [(20, 24, 38), (44, 52, 84)]
 
-# Додається до visual_prompt від AI, щоб зображення відповідало обраному стилю відео.
-# "dramatic"/"moody" свідомо уникаємо в кожному суфіксі - разом з
-# кінематографічними вимогами в _build_script_prompt() це раніше
-# штовхало модель до майже чорних силуетів у тумані/темряві замість
-# чіткої, добре освітленої картинки
-STYLE_PROMPT_SUFFIXES = {
-    "cinematic": "cinematic film still, high detail, well-lit scene, clearly visible subject",
-    "minimal": "minimalist, clean, flat design, simple shapes, soft colors",
-    "energetic": "vibrant colors, dynamic, high energy, bold composition",
-    "news": "photorealistic, documentary style, serious tone, neutral lighting",
-}
+# Додається до visual_prompt від AI, щоб зображення відповідало
+# кінематографічному стилю - єдиному стилю в застосунку. "dramatic"/
+# "moody" свідомо уникаємо - разом з кінематографічними вимогами в
+# _build_script_prompt() це раніше штовхало модель до майже чорних
+# силуетів у тумані/темряві замість чіткої, добре освітленої картинки
+CINEMATIC_SUFFIX = "cinematic film still, high detail, well-lit scene, clearly visible subject"
 
 
-def _gradient_background(style: str, scene_index: int) -> Image.Image:
-    top, bottom = STYLE_PALETTES.get(style, STYLE_PALETTES[DEFAULT_STYLE])
+def _gradient_background(scene_index: int) -> Image.Image:
+    top, bottom = GRADIENT_PALETTE
 
     # невеликий зсув відтінку залежно від номера сцени, щоб сцени візуально відрізнялись
     shift = (scene_index * 9) % 40
@@ -93,31 +82,29 @@ def _draw_centered_lines(draw: ImageDraw.ImageDraw, lines: list, font: ImageFont
         y += line_height
 
 
-def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
+def generate_scene_image(scene: dict, output_path: str) -> str:
     """Створює одне зображення для сцени і зберігає його на диск."""
-    style_suffix = STYLE_PROMPT_SUFFIXES.get(style, STYLE_PROMPT_SUFFIXES[DEFAULT_STYLE])
-    # Короткий, невеликий набір технічних вимог додається завжди, незалежно
-    # від обраного стилю - кожна картинка має виглядати як реальна
-    # фотографія/кінокадр, а не цифровий малюнок/арт, а стиль лише додає
-    # свій відтінок зверху. Свідомо коротко - забагато доданих слів (навіть
+    # Короткий, невеликий набір технічних вимог додається завжди - кожна
+    # картинка має виглядати як реальна фотографія/кінокадр, а не цифровий
+    # малюнок/арт. Свідомо коротко - забагато доданих слів (навіть
     # технічних) підвищує шанс, що генератор домалює зайву непотрібну
     # деталь, якої немає в самому visual_prompt.
     full_prompt = (
         f"{scene['visual_prompt']}, photorealistic film still, well-lit, sharp focus, "
-        f"{style_suffix}, vertical 9:16, no text, no watermark"
+        f"{CINEMATIC_SUFFIX}, vertical 9:16, no text, no watermark"
     )
 
     ai_result = ai.generate_visual_with_ai(full_prompt, output_path)
     if ai_result is not None:
         return ai_result
 
-    image = _gradient_background(style, scene["scene"])
+    image = _gradient_background(scene["scene"])
     draw = ImageDraw.Draw(image)
 
     label_font = ImageFont.truetype(FONT_PATH, 44)
     prompt_font = ImageFont.truetype(FONT_PATH, 80)
 
-    text_color = (40, 40, 40) if style == "minimal" else (255, 255, 255)
+    text_color = (255, 255, 255)
 
     draw.text((60, 70), f"СЦЕНА {scene['scene']}", font=label_font, fill=text_color)
 
@@ -128,7 +115,7 @@ def generate_scene_image(scene: dict, style: str, output_path: str) -> str:
     return output_path
 
 
-def generate_all_scenes(scenes: list, style: str, output_dir: str, progress_callback=None) -> list:
+def generate_all_scenes(scenes: list, output_dir: str, progress_callback=None) -> list:
     """Генерує зображення для всіх сцен. Повертає список шляхів до файлів (у порядку сцен).
 
     Сцени генеруються паралельно (до MAX_PARALLEL_IMAGE_REQUESTS
@@ -148,7 +135,7 @@ def generate_all_scenes(scenes: list, style: str, output_dir: str, progress_call
         index, scene = index_and_scene
         filename = f"scene_{scene['scene']:02d}.png"
         path = os.path.join(output_dir, filename)
-        generate_scene_image(scene, style, path)
+        generate_scene_image(scene, path)
         return index, path
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_IMAGE_REQUESTS) as executor:

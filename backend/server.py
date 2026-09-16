@@ -185,7 +185,6 @@ def _start_output_cleanup():
 class GenerateRequest(BaseModel):
     topic: str
     duration: int = 30
-    style: str = "cinematic"
     language: str = "uk"
 
 
@@ -193,7 +192,6 @@ def _new_job_state(request: GenerateRequest) -> dict:
     return {
         "topic": request.topic,
         "duration": request.duration,
-        "style": request.style,
         "language": request.language,
         "status": "processing",
         "progress": 0,
@@ -268,7 +266,7 @@ def run_pipeline(job_id: str):
 
         _set_stage(job, "visual", "active")
         scene_images = scene_generator.generate_all_scenes(
-            scenes, job["style"], scenes_dir,
+            scenes, scenes_dir,
             progress_callback=_make_stage_progress_callback(job, "visual"),
         )
         _set_stage(job, "visual", "done")
@@ -380,7 +378,7 @@ def regenerate_scene_image(request: RegenerateImageRequest):
     output_path = os.path.join(scenes_dir, f"scene_{request.scene_number:02d}.png")
 
     fake_scene = {"visual_prompt": request.visual_prompt, "scene": request.scene_number}
-    scene_generator.generate_scene_image(fake_scene, job["style"], output_path)
+    scene_generator.generate_scene_image(fake_scene, output_path)
 
     # cache-bust - той самий шлях файлу, інакше браузер показав би стару
     # картинку з кешу замість щойно перегенерованої

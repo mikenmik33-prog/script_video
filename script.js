@@ -355,7 +355,6 @@ async function handleFormSubmit(event) {
   const payload = {
     topic: formData.get("topic").trim(),
     duration: Number(formData.get("duration")),
-    style: formData.get("style"),
     language: formData.get("language"),
   };
 
