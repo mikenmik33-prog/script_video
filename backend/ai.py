@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 
 from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
 from backend.transitions import DEFAULT_TRANSITION, SCENE_TRANSITIONS
+from backend.miki import MIKI_PROFILE
 
 try:
     import edge_tts
@@ -148,6 +149,7 @@ def _build_script_prompt(topic: str, language: str) -> str:
         translation_field_example = ', "translation_uk": "..."'
 
     return (
+        MIKI_PROFILE + "\n"
         "Ти сценарист коротких вертикальних відео (YouTube Shorts/TikTok). "
         f"Напиши текст озвучки {language_instruction} для відео на тему: \"{topic}\". "
         "ЖОРСТКИЙ ЛІМІТ: сумарно ВСІ voice_text усіх сцен РАЗОМ мають "
@@ -163,7 +165,7 @@ def _build_script_prompt(topic: str, language: str) -> str:
         "озвучка цієї сцени звучала природно завершеною думкою, а не "
         "штучним обривком. "
         "Перша сцена - сильний hook, що одразу чіпляє увагу. "
-        "Остання сцена - короткий висновок і заклик підписатись. "
+        "Остання сцена - влучне завершення, відкриття або жарт за змістом. "
         "Без зайвої води, без вступних фраз на кшталт «звісно» чи «добре». "
         "Для кожної сцени поверни ці поля:\n"
         f"{number_format_instruction}"
@@ -187,13 +189,12 @@ def _build_script_prompt(topic: str, language: str) -> str:
         f"перехід (не бери одне й те саме підряд без причини): "
         f"{', '.join(SCENE_TRANSITIONS.keys())}.\n"
         "- character_appears - true/false: чи має в цій сцені з'явитися "
-        "постійний персонаж-провідник відео на ім'я Miki. Miki НЕ повинен "
-        "бути в кожній сцені - вирішуй по суті: він природно пасує сценам "
-        "з реакцією/коментарем/емоцією (подив, тривога, ентузіазм), "
-        "hook-сцені й фінальній сцені із закликом підписатись, але НЕ "
-        "пасує сценам, що просто показують факт/об'єкт/місце без потреби "
-        "в людській реакції на нього. Розподіли true/false логічно по "
-        "сценах (не всі true, не всі false).\n"
+        "постійний розповідач Miki. Визначай його присутність за сюжетом; "
+        "він бере активну участь, а не лише реагує збоку.\n"
+        "- transition_description - конкретний план переходу англійською: "
+        "кінцевий кадр, дія, напрям руху, спільна деталь і стартовий кадр "
+        "наступної сцени. Узгодь його з visual_prompt обох сцен. "
+        "Для останньої сцени опиши завершення без вигаданої наступної.\n"
         "- visual_prompt - детальний ОПИС СЦЕНИ англійською мовою для "
         "AI text-to-video генератора (користувач вставляє цей текст "
         "напряму в Google Flow чи інший подібний інструмент і отримує "
@@ -244,13 +245,9 @@ def _build_script_prompt(topic: str, language: str) -> str:
         "ОСВІТЛЕНИЙ - уникай суцільного силуету, надмірної темряви чи "
         "густого туману, які роблять обʼєкт нерозбірливим.\n"
         "Персонаж Miki: якщо character_appears для цієї сцени true - "
-        "використовуй незмінний дизайн персонажа: молодий на вигляд 2D "
-        "мультяшний хлопець середнього зросту (176 см), світла шкіра, "
-        "скуйовджене світло-русяве волосся, чорний довгий верх, сині "
-        "джинси й чорне взуття, товстий чорний контур. Він має виглядати "
-        "як 2D-персонаж, органічно вставлений у реалістичний "
-        "кінематографічний світ; не додавай білий фон, не змінюй одяг, "
-        "пропорції чи стиль без прямої потреби сюжету. "
+        "дотримуйся MIKI_PROFILE на початку інструкції та дизайну референсу. "
+        "Повтори в visual_prompt ключові ознаки його 2D-дизайну, "
+        "176 см зросту та реалістичного оточення. "
         "visual_prompt МАЄ прямо називати його на ім'я (\"Miki\") і "
         "описувати одним реченням його конкретну дію/позу/вираз обличчя, "
         "що відповідає змісту репліки (наприклад \"Miki stands beside "
@@ -288,6 +285,7 @@ def _build_script_prompt(topic: str, language: str) -> str:
         "Поверни ВИКЛЮЧНО JSON-масив об'єктів (кількість елементів = "
         'кількість сцен, яку ти сам визначив) формату {"voice_text": "...", '
         '"subtitle": "...", "camera_movement": "...", "transition": "...", '
+        '"transition_description": "...", '
         '"character_appears": '
         f'true/false, "visual_prompt": "..."{translation_field_example}}}, '
         f"без markdown і без пояснень. Приклад: {json_example}"
@@ -317,6 +315,7 @@ def _call_gemini(prompt: str) -> str:
                 "transition": {"type": "string"},
                 "character_appears": {"type": "boolean"},
                 "visual_prompt": {"type": "string"},
+                "transition_description": {"type": "string"},
                 "translation_uk": {"type": "string"},
             },
             "required": [
@@ -326,6 +325,7 @@ def _call_gemini(prompt: str) -> str:
                 "transition",
                 "character_appears",
                 "visual_prompt",
+                "transition_description",
                 "translation_uk",
             ],
         },
@@ -411,7 +411,10 @@ def generate_script_scenes_with_ai(topic: str, language: str):
                 "subtitle": subtitle,
                 "visual_prompt": visual_prompt,
                 "motion_prompt": CAMERA_MOVEMENTS[camera_movement_key],
-                "transition_prompt": SCENE_TRANSITIONS[transition_key],
+                "transition_prompt": (
+                    SCENE_TRANSITIONS[transition_key] + "\n\n"
+                    + str(scene.get("transition_description", "")).strip()
+                ).strip(),
                 "character_appears": bool(scene.get("character_appears", False)),
             }
             if language != "uk":

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 from dotenv import load_dotenv
+from backend.miki import MIKI_PROFILE
 
 load_dotenv()
 
@@ -87,7 +88,7 @@ def _extract_gemini_text(body: dict) -> str:
 def _build_ideas_prompt(language: str) -> str:
     cfg = LANGUAGES[language]
     today = time.strftime("%Y-%m-%d")
-    return f"""You are the topic editor for a short-form factual video channel.
+    return MIKI_PROFILE + f"""\nYou are the topic editor for a short-form factual video channel.
 Today is {today}. Create exactly {MAX_IDEAS} distinct topic ideas for
 {cfg['audience']}. Write every title and hook in {cfg['idea_language']} so
 the creator can understand the idea before choosing it. These are only topic
