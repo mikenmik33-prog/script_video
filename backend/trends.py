@@ -28,6 +28,22 @@ DEFAULT_LANGUAGE = "en"
 MAX_IDEAS = 10
 REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 
+# Used only when Gemini is temporarily unavailable (for example, HTTP 503).
+# These are evergreen, well-established topics, not generated claims; a
+# successful refresh replaces them with fresh model suggestions.
+FALLBACK_IDEAS = [
+    {"title": "Що почули на дні Маріанської западини", "hook": "Мікрофони в найглибшій точці океану записали не тишу, а землетруси, гуркіт і голоси китів."},
+    {"title": "Величезний хвіст Місяця", "hook": "Мікрометеорити вибивають із Місяця натрій, і Земля щомісяця проходить крізь цей потік атомів."},
+    {"title": "Як команда Шеклтона пережила кригу", "hook": "Двадцять вісім учасників антарктичної експедиції вижили майже два роки без корабля."},
+    {"title": "Підземний інтернет лісу", "hook": "Грибні мережі під ґрунтом зʼєднують дерева й допомагають їм обмінюватися ресурсами та сигналами."},
+    {"title": "Секретні дороги під океаном", "hook": "Більшість світового інтернет-трафіку проходить тонкими кабелями на морському дні, а не через супутники."},
+    {"title": "Храм, збудований до появи землеробства", "hook": "Ґьобеклі-Тепе показав, що великі камʼяні споруди люди створювали ще до переходу до осілого життя."},
+    {"title": "Рефлекс, який допомагає пірнальникам", "hook": "Холодна вода на обличчі сповільнює серцебиття й перенаправляє кров до життєво важливих органів."},
+    {"title": "Ворони розуміють нуль", "hook": "Експерименти показують, що ворони здатні оперувати числовою ідеєю нуля."},
+    {"title": "Чому Антарктида — пустеля", "hook": "Попри величезні запаси льоду, внутрішні райони Антарктиди отримують надзвичайно мало опадів."},
+    {"title": "Таємниця кульової блискавки", "hook": "Дослідники десятиліттями намагаються пояснити світні кулі, які іноді зʼявляються під час гроз."},
+]
+
 LANGUAGES = {
     # English is the production language for the US audience, but idea cards
     # are deliberately written in Ukrainian so the creator can understand
@@ -130,13 +146,17 @@ def _call_gemini(prompt: str) -> str:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="replace")
-        logger.warning("Gemini ideas API HTTP %s: %s", exc.code, details[:2000])
-        raise
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")
+            logger.warning("Gemini ideas API HTTP %s (attempt %s/3): %s", exc.code, attempt + 1, details[:2000])
+            if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
     return _extract_gemini_text(body)
 
 
@@ -157,7 +177,10 @@ def refresh_ideas(language: str = DEFAULT_LANGUAGE) -> bool:
     except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError, KeyError, TypeError):
         logger.exception("Не вдалося оновити Gemini-ідеї")
         with _cache_lock:
-            _last_error[language] = "Не вдалося оновити список ідей. Спробуйте ще раз."
+            if not _cached_ideas[language]:
+                _cached_ideas[language] = list(FALLBACK_IDEAS)
+                _last_updated[language] = time.time()
+            _last_error[language] = "Gemini тимчасово недоступний — показані резервні теми. Спробуйте оновити ще раз."
         return False
 
     with _cache_lock:
