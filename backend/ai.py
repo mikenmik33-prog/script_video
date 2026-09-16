@@ -82,16 +82,6 @@ EDGE_TTS_VOICES = {
     "en": "en-US-AriaNeural",
 }
 
-DEMO_MODE = not (OPENAI_API_KEY or GEMINI_API_KEY or TTS_API_KEY)
-
-
-def has_text_api() -> bool:
-    return bool(OPENAI_API_KEY or GEMINI_API_KEY)
-
-
-def has_voice_api() -> bool:
-    return edge_tts is not None or bool(TTS_API_KEY)
-
 
 def _strip_code_fence(text: str) -> str:
     """Gemini часто обгортає JSON у ```json ... ``` - прибираємо це."""
