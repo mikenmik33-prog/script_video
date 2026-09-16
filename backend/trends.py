@@ -29,8 +29,12 @@ MAX_IDEAS = 10
 REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 
 LANGUAGES = {
-    "en": {"language": "English", "audience": "adults in the United States"},
-    "uk": {"language": "Ukrainian", "audience": "Ukrainian-speaking adults"},
+    # English is the production language for the US audience, but idea cards
+    # are deliberately written in Ukrainian so the creator can understand
+    # and choose a topic quickly. The selected language still controls the
+    # generated script later.
+    "en": {"idea_language": "Ukrainian", "audience": "adults in the United States"},
+    "uk": {"idea_language": "Ukrainian", "audience": "Ukrainian-speaking adults"},
 }
 
 _cache_lock = threading.Lock()
@@ -69,7 +73,10 @@ def _build_ideas_prompt(language: str) -> str:
     today = time.strftime("%Y-%m-%d")
     return f"""You are the topic editor for a short-form factual video channel.
 Today is {today}. Create exactly {MAX_IDEAS} distinct topic ideas for
-{cfg['audience']}. Write every title and hook in {cfg['language']}.
+{cfg['audience']}. Write every title and hook in {cfg['idea_language']} so
+the creator can understand the idea before choosing it. These are only topic
+cards: when one is selected, the production script will be generated in the
+language selected in the video form.
 
 Focus on surprising facts, scientific discoveries, real human adventures, and
 understandable current events. Prefer plausible, well-known facts and do not

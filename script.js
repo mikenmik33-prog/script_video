@@ -190,8 +190,8 @@ function createScenePromptCard(scene) {
 
   const characterNote = document.createElement("p");
   characterNote.textContent = scene.character_appears
-    ? "🧑 Піпі з'являється в цій сцені"
-    : "— Піпі в цій сцені немає";
+    ? "🧑 Miki з'являється в цій сцені"
+    : "— Miki в цій сцені немає";
   card.appendChild(characterNote);
 
   if (scene.flow_duration) {
@@ -286,8 +286,8 @@ function renderScriptReview(data, jobId) {
 
     const characterNote = document.createElement("p");
     characterNote.textContent = scene.character_appears
-      ? "🧑 Піпі з'являється в цій сцені"
-      : "— Піпі в цій сцені немає";
+      ? "🧑 Miki з'являється в цій сцені"
+      : "— Miki в цій сцені немає";
     card.appendChild(characterNote);
 
     const label = document.createElement("label");
