@@ -26,6 +26,7 @@ const scriptReviewVoiceWarning = document.getElementById("script-review-voice-wa
 const approveScriptButton = document.getElementById("approve-script-button");
 const scriptReviewStatus = document.getElementById("script-review-status");
 
+const languageSelect = document.getElementById("language");
 const ideasList = document.getElementById("ideas-list");
 const ideasUpdated = document.getElementById("ideas-updated");
 const refreshIdeasButton = document.getElementById("refresh-ideas-button");
@@ -465,7 +466,7 @@ function renderIdeas(data) {
 
 async function loadTrendingIdeas() {
   try {
-    const response = await fetch("/api/trending-ideas");
+    const response = await fetch(`/api/trending-ideas?language=${languageSelect.value}`);
     if (!response.ok) return;
     const data = await response.json();
     renderIdeas(data);
@@ -477,7 +478,7 @@ async function loadTrendingIdeas() {
 async function handleRefreshIdeas() {
   refreshIdeasButton.disabled = true;
   try {
-    const response = await fetch("/api/trending-ideas/refresh", { method: "POST" });
+    const response = await fetch(`/api/trending-ideas/refresh?language=${languageSelect.value}`, { method: "POST" });
     if (response.ok) {
       renderIdeas(await response.json());
     }
@@ -489,6 +490,10 @@ async function handleRefreshIdeas() {
 }
 
 refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
+// Список трендів залежить від мови (окремі кеші uk/en на бекенді) -
+// перемикання мови одразу показує вже підготовлений список тієї мови
+// (без нового звернення до YouTube API - лише читання кешу).
+languageSelect.addEventListener("change", loadTrendingIdeas);
 
 loadTrendingIdeas();
 setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);
