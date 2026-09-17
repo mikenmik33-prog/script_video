@@ -28,29 +28,25 @@ AI-сервіси.
 import asyncio
 import json
 import logging
-import os
 import urllib.error
 import urllib.request
-
-from dotenv import load_dotenv
 
 from backend.camera_movements import CAMERA_MOVEMENTS, DEFAULT_CAMERA_MOVEMENT
 from backend.transitions import DEFAULT_TRANSITION, SCENE_TRANSITIONS
 from backend.miki import MIKI_PROFILE
+from backend.gemini_config import (
+    GEMINI_API_KEY,
+    GEMINI_TIMEOUT_SECONDS,
+    GEMINI_URL,
+    model_for_script,
+)
 
 try:
     import edge_tts
 except ImportError:
     edge_tts = None
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GEMINI_TIMEOUT_SECONDS = 60
 
 # Українські та англійські нейронні голоси edge-tts (безкоштовно, без ключа)
 EDGE_TTS_VOICES = {
@@ -303,7 +299,7 @@ def _extract_gemini_text(body: dict) -> str:
     raise RuntimeError("Gemini не повернув текстову відповідь.")
 
 
-def _call_gemini(prompt: str) -> str:
+def _call_gemini(prompt: str, model: str) -> str:
     scene_schema = {
         "type": "array",
         "items": {
@@ -339,7 +335,7 @@ def _call_gemini(prompt: str) -> str:
     }).encode("utf-8")
 
     request = urllib.request.Request(
-        GEMINI_URL.format(model=GEMINI_MODEL),
+        GEMINI_URL.format(model=model),
         data=payload,
         headers={
             "Content-Type": "application/json",
@@ -383,7 +379,7 @@ def generate_script_scenes_with_ai(topic: str, language: str):
 
     try:
         prompt = _build_script_prompt(topic, language)
-        raw_text = _call_gemini(prompt)
+        raw_text = _call_gemini(prompt, model_for_script(topic))
         scenes = json.loads(_strip_code_fence(raw_text))
 
         if not isinstance(scenes, list) or not (MIN_SCENES <= len(scenes) <= MAX_SCENES):

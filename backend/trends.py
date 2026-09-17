@@ -7,23 +7,20 @@ title into the topic field.
 
 import json
 import logging
-import os
 import threading
 import time
 import urllib.error
 import urllib.request
 
-from dotenv import load_dotenv
 from backend.miki import MIKI_PROFILE
-
-load_dotenv()
+from backend.gemini_config import (
+    GEMINI_API_KEY,
+    GEMINI_IDEA_MODEL,
+    GEMINI_TIMEOUT_SECONDS,
+    GEMINI_URL,
+)
 
 logger = logging.getLogger(__name__)
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GEMINI_TIMEOUT_SECONDS = 60
 
 DEFAULT_LANGUAGE = "en"
 MAX_IDEAS = 1
@@ -124,7 +121,7 @@ def _call_gemini(prompt: str) -> str:
         },
     }).encode("utf-8")
     request = urllib.request.Request(
-        GEMINI_URL.format(model=GEMINI_MODEL),
+        GEMINI_URL.format(model=GEMINI_IDEA_MODEL),
         data=payload,
         headers={
             "Content-Type": "application/json",
