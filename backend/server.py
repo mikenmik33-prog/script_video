@@ -121,11 +121,6 @@ jobs: dict = _load_jobs()
 
 
 @app.on_event("startup")
-def _start_trending_ideas_refresh():
-    trends.start_background_refresh()
-
-
-@app.on_event("startup")
 def _start_output_cleanup():
     _start_cleanup()
 
@@ -241,13 +236,13 @@ def run_finalize_stage(job_id: str):
 
 @app.get("/api/trending-ideas")
 def get_trending_ideas(language: str = "en"):
-    """Десять ідей від Gemini для вибраної мовної аудиторії."""
+    """Одна ідея від Gemini для вибраної мовної аудиторії."""
     return trends.get_ideas(language)
 
 
 @app.post("/api/trending-ideas/refresh")
 def refresh_trending_ideas(language: str = "en"):
-    """Примусово генерує новий список із десяти ідей Gemini."""
+    """Примусово генерує одну нову ідею Gemini."""
     updated = trends.refresh_ideas(language)
     return {"updated": updated, **trends.get_ideas(language)}
 

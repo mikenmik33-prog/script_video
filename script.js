@@ -26,10 +26,6 @@ const approveScriptButton = document.getElementById("approve-script-button");
 const scriptReviewStatus = document.getElementById("script-review-status");
 
 const languageSelect = document.getElementById("language");
-const languageSelectWrapper = document.getElementById("language-select");
-const languageSelectTrigger = document.getElementById("language-select-trigger");
-const languageSelectValue = languageSelectTrigger.querySelector(".custom-select-value");
-const languageSelectOptions = languageSelectWrapper.querySelector(".custom-select-options");
 const ideasList = document.getElementById("ideas-list");
 const ideasUpdated = document.getElementById("ideas-updated");
 const refreshIdeasButton = document.getElementById("refresh-ideas-button");
@@ -39,6 +35,7 @@ let pollTimerId = null;
 function showFormError(message) {
   formError.textContent = message;
   formError.hidden = false;
+  document.getElementById("work-status").textContent = "Не вдалося завершити";
 }
 
 function clearFormError() {
@@ -48,7 +45,8 @@ function clearFormError() {
 
 function setFormDisabled(disabled) {
   submitButton.disabled = disabled;
-  submitButton.textContent = disabled ? "Створення..." : "Створити промт";
+  if (disabled) document.getElementById("work-status").textContent = "Готуємо сценарій та озвучку…";
+  submitButton.textContent = disabled ? "Створюємо історію…" : "Створити сценарій →";
 }
 
 function resetStages() {
@@ -71,9 +69,10 @@ function renderStages(stages, progress) {
     item.querySelector(".stage-icon").textContent = STAGE_ICONS[status];
   });
   progressBarFill.style.width = `${progress}%`;
+  progressBarFill.parentElement.setAttribute("aria-valuenow", String(Math.round(progress)));
   // 3 знаки після коми - щоб відсоток було видно "живим" навіть під час
   // довгого етапу монтажу, а не завислим на одному цілому числі
-  progressPercent.textContent = `${progress.toFixed(3)}%`;
+  progressPercent.textContent = `${Math.round(progress)}%`;
 }
 
 function stopPolling() {
@@ -175,6 +174,8 @@ function renderResult(data, jobId) {
   });
 
   resultPanel.hidden = false;
+  document.getElementById("work-status").textContent = "Матеріали готові";
+  resultPanel.scrollIntoView({block: "start", behavior: "smooth"});
 }
 
 // Картка сцени: детальний промт сцени + рекомендований промт руху
@@ -235,6 +236,24 @@ function createScenePromptCard(scene) {
   transitionText.readOnly = true;
   card.appendChild(transitionText);
 
+  [promptText, motionText, transitionText].forEach((field, index) => {
+    field.setAttribute("aria-label", ["Промт сцени", "Рух камери", "Перехід"][index] + " " + scene.scene);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "copy-button";
+    copy.textContent = "Копіювати";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(field.value);
+        copy.textContent = "Скопійовано ✓";
+        setTimeout(() => { copy.textContent = "Копіювати"; }, 1800);
+      } catch {
+        field.focus(); field.select();
+        copy.textContent = "Натисни Ctrl+C";
+      }
+    });
+    field.after(copy);
+  });
   return card;
 }
 
@@ -297,6 +316,7 @@ function renderScriptReview(data, jobId) {
     const textarea = document.createElement("textarea");
     textarea.className = "test-prompt-input";
     textarea.rows = 3;
+    textarea.setAttribute("aria-label", `Репліка сцени ${scene.scene}`);
     textarea.value = scene.voice_text;
     textarea.dataset.scene = scene.scene;
     textarea.dataset.field = "voice_text";
@@ -316,6 +336,7 @@ function renderScriptReview(data, jobId) {
     const promptTextarea = document.createElement("textarea");
     promptTextarea.className = "test-prompt-input";
     promptTextarea.rows = 3;
+    promptTextarea.setAttribute("aria-label", `Опис сцени ${scene.scene}`);
     promptTextarea.value = scene.visual_prompt;
     promptTextarea.dataset.scene = scene.scene;
     promptTextarea.dataset.field = "visual_prompt";
@@ -328,6 +349,8 @@ function renderScriptReview(data, jobId) {
   scriptReviewStatus.textContent = "";
   approveScriptButton.disabled = false;
   scriptReviewPanel.hidden = false;
+  document.getElementById("work-status").textContent = "Сценарій чекає на твоє затвердження";
+  scriptReviewPanel.scrollIntoView({block: "start", behavior: "smooth"});
   approveScriptButton.onclick = () => handleApproveScript(jobId);
 }
 
@@ -342,6 +365,8 @@ async function handleApproveScript(jobId) {
   });
 
   approveScriptButton.disabled = true;
+  setFormDisabled(true);
+  document.getElementById("work-status").textContent = "Готуємо фінальні матеріали…";
   scriptReviewStatus.hidden = false;
   scriptReviewStatus.textContent = "Затверджуємо сценарій, готуємо фінальні файли...";
   try {
@@ -360,12 +385,15 @@ async function handleApproveScript(jobId) {
   } catch (err) {
     scriptReviewStatus.textContent = `Помилка: ${err.message}`;
     approveScriptButton.disabled = false;
+    setFormDisabled(false);
   }
 }
 
 async function handleFormSubmit(event) {
   event.preventDefault();
   clearFormError();
+  stopPolling();
+  statusPollFailures = 0;
   resetStages();
   resultPanel.hidden = true;
   scriptReviewPanel.hidden = true;
@@ -407,14 +435,7 @@ form.addEventListener("submit", handleFormSubmit);
 
 // --- Ідеї для відео від Gemini ---
 
-const IDEAS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 хвилин
-
-function formatViews(views) {
-  if (views === null || views === undefined) return null;
-  // точна кількість переглядів з розділювачами розрядів (напр. "1 234 567"),
-  // а не скорочено - користувач попросив саме реальне число
-  return `${views.toLocaleString("uk-UA")} переглядів`;
-}
+let ideaRequestVersion = 0;
 
 function formatUpdatedAt(unixSeconds) {
   if (!unixSeconds) return "";
@@ -423,11 +444,11 @@ function formatUpdatedAt(unixSeconds) {
 }
 
 function renderIdeas(data) {
-  const ideas = data.ideas || [];
+  const ideas = (data.ideas || []).slice(0, 1);
   ideasUpdated.textContent = data.error || formatUpdatedAt(data.last_updated);
 
   if (ideas.length === 0) {
-    ideasList.innerHTML = '<p class="ideas-loading">Ідей поки немає.</p>';
+    ideasList.innerHTML = '<p class="ideas-loading">Отримай одну ідею або впиши власну тему. Генерація почнеться після натискання кнопки.</p>';
     return;
   }
 
@@ -439,7 +460,7 @@ function renderIdeas(data) {
 
     const rank = document.createElement("div");
     rank.className = "idea-rank";
-    rank.textContent = `#${index + 1}`;
+    rank.textContent = "ІДЕЯ ДЛЯ МІКІ";
     card.appendChild(rank);
 
     if (idea.thumbnail) {
@@ -462,7 +483,13 @@ function renderIdeas(data) {
       card.appendChild(hook);
     }
 
+    const cta = document.createElement("span");
+    cta.className = "idea-cta";
+    cta.textContent = "Обрати цю тему ↗";
+    card.appendChild(cta);
     card.addEventListener("click", () => {
+      card.classList.add("selected");
+      cta.textContent = "Тему обрано ✓";
       topicInput.value = idea.title;
       topicInput.focus();
     });
@@ -472,95 +499,43 @@ function renderIdeas(data) {
 }
 
 async function loadTrendingIdeas() {
+  const version = ++ideaRequestVersion;
+  const language = languageSelect.value;
   try {
-    const response = await fetch(`/api/trending-ideas?language=${languageSelect.value}`);
-    if (!response.ok) return;
+    const response = await fetch(`/api/trending-ideas?language=${language}`);
+    if (!response.ok) throw new Error("Не вдалося завантажити ідею.");
     const data = await response.json();
-    renderIdeas(data);
+    if (version === ideaRequestVersion) renderIdeas(data);
   } catch (err) {
-    // тихо ігноруємо - це не критична для роботи форми функція
+    if (version === ideaRequestVersion) ideasUpdated.textContent = err.message;
   }
 }
 
 async function handleRefreshIdeas() {
+  if (refreshIdeasButton.disabled) return;
+  const version = ++ideaRequestVersion;
+  const language = languageSelect.value;
   refreshIdeasButton.disabled = true;
+  refreshIdeasButton.textContent = "Шукаємо цікаву тему…";
+  ideasList.setAttribute("aria-busy", "true");
+  ideasUpdated.textContent = "Gemini готує одну ідею. Це може зайняти близько хвилини.";
   try {
-    const response = await fetch(`/api/trending-ideas/refresh?language=${languageSelect.value}`, { method: "POST" });
-    if (response.ok) {
-      renderIdeas(await response.json());
-    }
+    const response = await fetch(`/api/trending-ideas/refresh?language=${language}`, {method: "POST"});
+    if (!response.ok) throw new Error("Сервіс тимчасово недоступний. Спробуй пізніше.");
+    const data = await response.json();
+    if (version === ideaRequestVersion) renderIdeas(data);
   } catch (err) {
-    // тихо ігноруємо
+    if (version === ideaRequestVersion) ideasUpdated.textContent = err.message;
   } finally {
     refreshIdeasButton.disabled = false;
+    refreshIdeasButton.textContent = "✦ Запропонувати іншу ідею";
+    ideasList.setAttribute("aria-busy", "false");
   }
 }
 
 refreshIdeasButton.addEventListener("click", handleRefreshIdeas);
-// Список ідей залежить від мови (окремі кеші uk/en на бекенді) -
-// перемикання мови одразу показує вже підготовлений список тієї мови
-// (без нового звернення до Gemini - лише читання кешу).
-languageSelect.addEventListener("change", loadTrendingIdeas);
-
-// Кастомний дропдаун мови: керує лише виглядом, а фактичне значення
-// завжди зберігається в схованому нативному <select id="language">,
-// тому решта коду (відправка форми, запити трендів) працює без змін.
-function syncLanguageOptionUi(value) {
-  const option = languageSelectOptions.querySelector(`li[data-value="${value}"]`);
-  if (!option) return;
-
-  languageSelectValue.textContent = option.textContent;
-  languageSelectOptions.querySelectorAll("li").forEach((li) => {
-    const isActive = li.dataset.value === value;
-    li.classList.toggle("is-active", isActive);
-    li.setAttribute("aria-selected", String(isActive));
-  });
-}
-
-function selectLanguageOption(value) {
-  syncLanguageOptionUi(value);
-  languageSelect.value = value;
-  languageSelect.dispatchEvent(new Event("change"));
-}
-
-function closeLanguageOptions() {
-  languageSelectOptions.hidden = true;
-  languageSelectTrigger.setAttribute("aria-expanded", "false");
-}
-
-function openLanguageOptions() {
-  languageSelectOptions.hidden = false;
-  languageSelectTrigger.setAttribute("aria-expanded", "true");
-}
-
-languageSelectTrigger.addEventListener("click", () => {
-  if (languageSelectOptions.hidden) {
-    openLanguageOptions();
-  } else {
-    closeLanguageOptions();
-  }
+languageSelect.addEventListener("change", () => {
+  ideasList.innerHTML = '<p class="ideas-loading">Завантаження…</p>';
+  loadTrendingIdeas();
 });
-
-languageSelectOptions.addEventListener("click", (event) => {
-  const option = event.target.closest("li[data-value]");
-  if (!option) return;
-  selectLanguageOption(option.dataset.value);
-  closeLanguageOptions();
-});
-
-document.addEventListener("click", (event) => {
-  if (!languageSelectWrapper.contains(event.target)) {
-    closeLanguageOptions();
-  }
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    closeLanguageOptions();
-  }
-});
-
-syncLanguageOptionUi(languageSelect.value);
-
 loadTrendingIdeas();
-setInterval(loadTrendingIdeas, IDEAS_AUTO_REFRESH_MS);

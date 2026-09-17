@@ -1,7 +1,7 @@
 """Gemini-generated topic suggestions for the video generator.
 
-Suggestions are adapted to the selected audience and language using the model's
-knowledge only. The UI shows ten refreshable ideas; clicking one copies its
+Suggestions are generated one at a time on explicit request, adapted to the
+selected audience. Clicking the Ukrainian idea copies its
 title into the topic field.
 """
 
@@ -26,25 +26,7 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 GEMINI_TIMEOUT_SECONDS = 60
 
 DEFAULT_LANGUAGE = "en"
-MAX_IDEAS = 10
-REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
-
-# Used only when Gemini is temporarily unavailable (for example, HTTP 503).
-# These are evergreen, well-established topics, not generated claims; a
-# successful refresh replaces them with fresh model suggestions.
-FALLBACK_IDEAS = [
-    {"title": "Що почули на дні Маріанської западини", "hook": "Мікрофони в найглибшій точці океану записали не тишу, а землетруси, гуркіт і голоси китів."},
-    {"title": "Величезний хвіст Місяця", "hook": "Мікрометеорити вибивають із Місяця натрій, і Земля щомісяця проходить крізь цей потік атомів."},
-    {"title": "Як команда Шеклтона пережила кригу", "hook": "Двадцять вісім учасників антарктичної експедиції вижили майже два роки без корабля."},
-    {"title": "Підземний інтернет лісу", "hook": "Грибні мережі під ґрунтом зʼєднують дерева й допомагають їм обмінюватися ресурсами та сигналами."},
-    {"title": "Секретні дороги під океаном", "hook": "Більшість світового інтернет-трафіку проходить тонкими кабелями на морському дні, а не через супутники."},
-    {"title": "Храм, збудований до появи землеробства", "hook": "Ґьобеклі-Тепе показав, що великі камʼяні споруди люди створювали ще до переходу до осілого життя."},
-    {"title": "Рефлекс, який допомагає пірнальникам", "hook": "Холодна вода на обличчі сповільнює серцебиття й перенаправляє кров до життєво важливих органів."},
-    {"title": "Ворони розуміють нуль", "hook": "Експерименти показують, що ворони здатні оперувати числовою ідеєю нуля."},
-    {"title": "Чому Антарктида — пустеля", "hook": "Попри величезні запаси льоду, внутрішні райони Антарктиди отримують надзвичайно мало опадів."},
-    {"title": "Таємниця кульової блискавки", "hook": "Дослідники десятиліттями намагаються пояснити світні кулі, які іноді зʼявляються під час гроз."},
-]
-
+MAX_IDEAS = 1
 LANGUAGES = {
     # English is the production language for the US audience, but idea cards
     # are deliberately written in Ukrainian so the creator can understand
@@ -88,12 +70,15 @@ def _extract_gemini_text(body: dict) -> str:
 def _build_ideas_prompt(language: str) -> str:
     cfg = LANGUAGES[language]
     today = time.strftime("%Y-%m-%d")
+    with _cache_lock:
+        previous = [idea["title"] for idea in _cached_ideas[language]]
     return MIKI_PROFILE + f"""\nYou are the topic editor for a short-form factual video channel.
 Today is {today}. Create exactly {MAX_IDEAS} distinct topic ideas for
 {cfg['audience']}. Write every title and hook in {cfg['idea_language']} so
 the creator can understand the idea before choosing it. These are only topic
 cards: when one is selected, the production script will be generated in the
 language selected in the video form.
+Choose a different topic from the previous suggestion: {json.dumps(previous, ensure_ascii=False)}.
 
 Focus on surprising facts, scientific discoveries, real human adventures, and
 understandable current events. Prefer plausible, well-known facts and do not
@@ -162,26 +147,29 @@ def _call_gemini(prompt: str) -> str:
 
 
 def refresh_ideas(language: str = DEFAULT_LANGUAGE) -> bool:
-    """Generate and cache ten ideas for one language."""
+    """Generate and cache one idea for one audience on request."""
     language = _normalize_language(language)
     try:
         raw = _call_gemini(_build_ideas_prompt(language))
         data = json.loads(_strip_code_fence(raw))
         ideas = data.get("ideas") if isinstance(data, dict) else None
         if not isinstance(ideas, list) or len(ideas) != MAX_IDEAS:
-            raise ValueError("Gemini повернув не рівно 10 ідей.")
+            raise ValueError("Gemini повернув некоректну кількість ідей.")
         normalized = []
         for idea in ideas:
             if not isinstance(idea, dict) or not idea.get("title") or not idea.get("hook"):
                 raise ValueError("Gemini повернув неповну ідею.")
             normalized.append({"title": str(idea["title"]).strip(), "hook": str(idea["hook"]).strip()})
-    except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError, KeyError, TypeError):
+    except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.exception("Не вдалося оновити Gemini-ідеї")
         with _cache_lock:
-            if not _cached_ideas[language]:
-                _cached_ideas[language] = list(FALLBACK_IDEAS)
-                _last_updated[language] = time.time()
-            _last_error[language] = "Gemini тимчасово недоступний — показані резервні теми. Спробуйте оновити ще раз."
+            _last_error[language] = (
+                "Gemini перевантажений. Спробуйте за кілька хвилин."
+                if isinstance(exc, urllib.error.HTTPError) and exc.code == 503
+                else "Ліміт запитів Gemini вичерпано. Спробуйте пізніше."
+                if isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+                else "Не вдалося отримати нову ідею. Спробуйте ще раз."
+            )
         return False
 
     with _cache_lock:
@@ -200,17 +188,3 @@ def get_ideas(language: str = DEFAULT_LANGUAGE) -> dict:
             "source": "gemini",
             "error": _last_error[language],
         }
-
-
-def _background_refresh_loop():
-    while True:
-        time.sleep(REFRESH_INTERVAL_SECONDS)
-        for language in LANGUAGES:
-            refresh_ideas(language)
-
-
-def start_background_refresh():
-    """Prepare both language lists at startup and refresh them periodically."""
-    for language in LANGUAGES:
-        refresh_ideas(language)
-    threading.Thread(target=_background_refresh_loop, daemon=True).start()

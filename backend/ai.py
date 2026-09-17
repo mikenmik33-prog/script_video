@@ -424,6 +424,16 @@ def generate_script_scenes_with_ai(topic: str, language: str):
                 entry["translation_uk"] = str(scene.get("translation_uk", voice_text)).strip()
             result.append(entry)
         return result
+    except urllib.error.HTTPError as exc:
+        if exc.code == 503:
+            message = "Gemini зараз перевантажений. Спробуйте створити сценарій за кілька хвилин."
+        elif exc.code == 429:
+            message = "Ліміт запитів Gemini вичерпано. Спробуйте пізніше."
+        elif exc.code in (401, 403):
+            message = "Gemini відхилив доступ. Перевірте ключ і дозволи в Render."
+        else:
+            message = f"Gemini повернув помилку HTTP {exc.code}. Спробуйте ще раз."
+        raise RuntimeError(message) from exc
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.warning("Gemini API недоступний: %s", exc)
         raise RuntimeError("Gemini API недоступний або повернув некоректну відповідь. Перевірте ключ і спробуйте ще раз.") from exc

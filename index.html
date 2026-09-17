@@ -1,116 +1,72 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>AI Video Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#141917" />
+  <title>Miki Studio — майстерня історій</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
-    <h1>AI Video Generator</h1>
+    <a class="brand" href="./"><span class="brand-mark">M</span><span>Miki <strong>Studio</strong></span></a>
+    <span class="header-note">Майстерня коротких історій</span>
+    <span class="tag">2D герой · реальний світ</span>
   </header>
-
-  <section class="panel ideas-panel">
-    <div class="ideas-header">
-      <h2>Ідеї для відео від Gemini</h2>
-      <button type="button" id="refresh-ideas-button" class="refresh-button">↻ Оновити</button>
+  <main class="workspace">
+    <div class="page-heading"><p class="eyebrow">ВІД ІДЕЇ ДО СЦЕНИ</p><h1>Наступна історія Мікі.</h1><p>Знайди тему, відшліфуй репліки та підготуй сцени для Google Flow.</p></div>
+    <nav class="workflow" aria-label="Етапи роботи">
+      <a href="#topic-section"><span>01</span> Тема</a>
+      <a href="#script-review-panel"><span>02</span> Сценарій</a>
+      <a href="#result-panel"><span>03</span> Матеріали для Flow</a>
+    </nav>
+    <div class="layout">
+      <section class="panel form-panel" id="topic-section">
+        <p class="eyebrow">01 / ПОЧАТОК</p><h2>Про що розповімо?</h2>
+        <p class="subtitle">Впиши свою тему або обери ідею праворуч.</p>
+        <form id="generate-form">
+          <label for="topic">Тема історії</label>
+          <textarea id="topic" name="topic" rows="3" placeholder="Наприклад: чому кашалоти сплять вертикально?" required></textarea>
+          <label for="language">Мова відео</label>
+          <select id="language" name="language"><option value="en">English · аудиторія США</option><option value="uk">Українська · аудиторія України</option></select>
+          <p class="field-note">Ідеї та переклади — українською. Репліки й озвучка — обраною мовою.</p>
+          <button type="submit" id="submit-button" class="primary">Створити сценарій →</button>
+        </form>
+        <p id="form-error" class="error-message" role="alert" hidden></p>
+      </section>
+      <section class="panel ideas-panel">
+        <div class="ideas-header"><div><p class="eyebrow">ПОТРІБНЕ НАТХНЕННЯ?</p><h2>Одна ідея. Нова історія.</h2></div><span class="idea-symbol" aria-hidden="true">✦</span></div>
+        <div id="ideas-list" class="ideas-list"><p class="ideas-loading">Натисни «Запропонувати ідею» — тут з’являться тема та її цікава деталь.</p></div>
+        <p id="ideas-updated" class="ideas-updated" role="status"></p>
+        <button type="button" id="refresh-ideas-button" class="secondary">✦ Запропонувати ідею</button>
+      </section>
+      <section class="panel progress-panel" aria-label="Стан роботи">
+        <div><p class="eyebrow">СТАН РОБОТИ</p><h2 id="work-status" role="status">Готові до нової історії</h2></div>
+        <ol id="stage-list" class="stage-list">
+          <li data-stage="script"><span class="stage-icon">○</span> Сценарій</li>
+          <li data-stage="voice"><span class="stage-icon">○</span> Озвучка</li>
+          <li data-stage="export"><span class="stage-icon">○</span> Файли</li>
+        </ol>
+        <div class="progress-bar-track" role="progressbar" aria-label="Готовність матеріалів" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-bar-fill" class="progress-bar-fill"></div></div>
+        <p id="progress-percent" class="progress-percent">0%</p>
+      </section>
     </div>
-    <p class="ideas-note">Ідеї показуються українською для зручності, а сценарій створюється обраною мовою.</p>
-    <p id="ideas-updated" class="ideas-updated"></p>
-    <div id="ideas-list" class="ideas-list">
-      <p class="ideas-loading">Завантаження ідей...</p>
-    </div>
-  </section>
-
-  <main class="layout">
-    <section class="panel form-panel">
-      <h2>Новий промт</h2>
-      <form id="generate-form">
-        <label for="topic">Тема для промту</label>
-        <input
-          type="text"
-          id="topic"
-          name="topic"
-          placeholder="Наприклад: Що буде, якщо Земля перестане обертатися?"
-          required
-        />
-
-        <label id="language-label">Мова</label>
-        <select id="language" name="language" hidden aria-hidden="true" tabindex="-1">
-          <option value="en">English</option>
-          <option value="uk">Українська</option>
-        </select>
-        <div class="custom-select" id="language-select">
-          <button
-            type="button"
-            class="custom-select-trigger"
-            id="language-select-trigger"
-            aria-haspopup="listbox"
-            aria-expanded="false"
-            aria-labelledby="language-label"
-          >
-            <span class="custom-select-value">English</span>
-            <span class="custom-select-arrow" aria-hidden="true">▾</span>
-          </button>
-          <ul class="custom-select-options" role="listbox" tabindex="-1" hidden>
-            <li role="option" data-value="en" aria-selected="true">English</li>
-            <li role="option" data-value="uk" aria-selected="false">Українська</li>
-          </ul>
-        </div>
-
-        <button type="submit" id="submit-button">Створити промт</button>
-      </form>
-
-      <p id="form-error" class="error-message" hidden></p>
+    <section class="panel script-review-panel" id="script-review-panel" hidden>
+      <p class="eyebrow">02 / СЦЕНАРІЙ</p><h2>Історія складається зі сцен.</h2>
+      <p class="subtitle">Перевір переклад і за потреби зміни репліки або опис сцени. Після затвердження підготуємо файли.</p>
+      <p id="script-review-full-text-uk" class="full-text" hidden></p>
+      <div id="script-review-scenes" class="test-scenes-list"></div>
+      <div class="review-actions"><button type="button" id="approve-script-button" class="primary">Затвердити й підготувати матеріали →</button><p id="script-review-status" role="status" hidden></p></div>
     </section>
-
-    <section class="panel progress-panel">
-      <h2>Прогрес генерації</h2>
-
-      <ol id="stage-list" class="stage-list">
-        <li data-stage="script"><span class="stage-icon">○</span> Генерація сценарію</li>
-        <li data-stage="voice"><span class="stage-icon">○</span> Озвучка</li>
-        <li data-stage="export"><span class="stage-icon">○</span> Субтитри й файли</li>
-      </ol>
-
-      <div class="progress-bar-track">
-        <div id="progress-bar-fill" class="progress-bar-fill"></div>
-      </div>
-      <p id="progress-percent" class="progress-percent">0%</p>
-    </section>
-
     <section class="panel result-panel" id="result-panel" hidden>
-      <h2>Матеріали готові</h2>
-
-      <h3>Сценарій</h3>
-      <p id="result-full-text" class="full-text"></p>
-      <p id="result-full-text-uk" class="full-text" hidden></p>
-
-      <h3>Сцени</h3>
-      <ol id="result-scenes" class="scene-list"></ol>
-
-      <h3>Промти сцен для Google Flow</h3>
-      <p class="subtitle">
-        Застосунок не генерує ні картинки, ні відео - скопіюйте
-        детальний промт сцени і рекомендований промт руху камери в
-        Google Flow (чи інший text-to-video інструмент) і отримайте
-        готове відео напряму для кожної сцени.
-      </p>
+      <p class="eyebrow">03 / ГОТОВО ДО ВИРОБНИЦТВА</p><h2>Твоя історія готова до Flow.</h2>
+      <p class="subtitle">Скопіюй промти сцен у Flow та додай референс Мікі там, де він є в кадрі.</p>
+      <details><summary>Повний сценарій і таймінг</summary><p id="result-full-text" class="full-text"></p><p id="result-full-text-uk" class="full-text" hidden></p><ol id="result-scenes" class="scene-list"></ol></details>
       <div id="result-scene-prompts" class="test-scenes-list"></div>
-
-      <h3>Файли</h3>
-      <ul id="result-files" class="file-list"></ul>
+      <h3>Завантажити матеріали</h3><ul id="result-files" class="file-list"></ul>
     </section>
+    <footer>MIKI STUDIO <span>Ідея → історія → сцена</span></footer>
   </main>
-
-  <section class="panel script-review-panel" id="script-review-panel" hidden>
-    <h2>Перегляньте сценарій</h2>
-    <p id="script-review-full-text-uk" class="full-text" hidden></p>
-    <div id="script-review-scenes" class="test-scenes-list"></div>
-    <button type="button" id="approve-script-button" class="test-continue-button">Затвердити сценарій</button>
-    <p id="script-review-status" class="error-message" hidden></p>
-  </section>
-
   <script src="script.js"></script>
 </body>
 </html>
